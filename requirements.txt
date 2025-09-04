@@ -1,12 +1,14 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 streamlit==1.26.0
 langchain==0.0.281
-faiss-cpu>=1.8.0
+faiss-cpu==1.7.4
 transformers==4.33.1
-torch==1.13.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision==0.14.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.0+cpu
+torchvision==0.15.1+cpu
 sentence-transformers==2.2.2
 python-dotenv==1.0.0
 requests==2.31.0
 beautifulsoup4==4.12.2
 accelerate==0.23.0
-werkzeug>=2.0.0,<3.0.0
+werkzeug==2.2.3
+typing-extensions>=4.5.0

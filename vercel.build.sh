@@ -2,18 +2,19 @@
 set -e  # Exit on error
 
 echo "Python version:"
-python3 --version
+python --version
 
 echo "Upgrading pip..."
-python3 -m pip install --upgrade pip
+python -m pip install --upgrade pip
 
-echo "Installing PyTorch CPU version..."
-python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+echo "Installing dependencies..."
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt --no-deps
 
-echo "Installing other dependencies..."
-python3 -m pip install -r requirements.txt --no-cache-dir
+echo "Installing PyTorch..."
+python -m pip install torch==1.13.1+cpu torchvision==0.14.1+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
 echo "Verifying installations..."
-python3 -m pip freeze
+python -m pip list
 
 echo "Build script completed successfully"

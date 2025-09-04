@@ -1,10 +1,11 @@
-streamlit==1.26.0
-langchain==0.0.281
-faiss-cpu==1.8.0
-transformers==4.33.1
-torch==2.0.1
-sentence-transformers==2.2.2
-python-dotenv==1.0.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-accelerate==0.23.0
+streamlit>=1.26.0
+langchain>=0.0.281
+faiss-cpu>=1.8.0
+transformers>=4.33.1
+--find-links https://download.pytorch.org/whl/cpu
+torch>=2.2.0+cpu
+sentence-transformers>=2.2.2
+python-dotenv>=1.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+accelerate>=0.23.0

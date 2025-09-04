@@ -3,11 +3,11 @@
     "builds": [
         {
             "src": "src/app.py",
-            "use": "@vercel/python@3.1.0",
+            "use": "@vercel/python",
             "config": {
                 "maxLambdaSize": "500mb",
-                "runtime": "python3.9",
-                "installCommand": "python3.9 -m pip install --upgrade pip && pip install -r requirements.txt"
+                "pythonVersion": "3.9",
+                "installCommand": "pip install --upgrade pip && pip install -r requirements.txt"
             }
         }
     ],
@@ -19,8 +19,6 @@
     ],
     "env": {
         "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "/vercel/path0",
-        "PYTHONUTF8": "1",
-        "PYTHONIOENCODING": "utf-8"
+        "PYTHONPATH": "/vercel/path0"
     }
 }

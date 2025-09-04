@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "news-equity-research-tool"
+version = "0.1.0"
+description = "A News Equity Research Tool for financial analysis"
+authors = ["Nethimani Kyapavan"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+streamlit = "^1.49.1"
+langchain = "^0.3.27"
+python-dotenv = "^1.1.1"
+faiss-cpu = "^1.7.4"
+transformers = "^4.37.2"
+torch = "^2.2.0"
+sentence-transformers = "^2.5.1"
+requests = "^2.31.0"
+beautifulsoup4 = "^4.12.3"
+accelerate = "^0.26.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

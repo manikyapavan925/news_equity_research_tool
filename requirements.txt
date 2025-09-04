@@ -1,0 +1,10 @@
+streamlit
+langchain
+faiss-cpu
+transformers
+torch
+sentence-transformers
+python-dotenv
+requests
+beautifulsoup4
+accelerate

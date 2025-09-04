@@ -1,10 +1,13 @@
+--no-cache-dir
 streamlit==1.26.0
 langchain==0.0.281
-faiss-cpu==1.7.4
+faiss-cpu==1.8.0
 transformers==4.33.1
 --find-links https://download.pytorch.org/whl/torch_stable.html
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch==1.13.1+cpu
 torchvision==0.14.1+cpu
+torchaudio==0.13.1
 sentence-transformers==2.2.2
 python-dotenv==1.0.0
 requests==2.31.0

@@ -25,15 +25,21 @@ import os
 import re
 import time
 from dotenv import load_dotenv
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.llms import HuggingFacePipeline
+from langchain_community.llms import HuggingFacePipeline
 from langchain.chains import ConversationalRetrievalChain
-from langchain.document_loaders import WebBaseLoader
+from langchain_community.document_loaders import WebBaseLoader
 from langchain.prompts import PromptTemplate
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-from langchain.prompts import PromptTemplate
+try:
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+except ImportError:
+    # Fallback for older transformers versions
+    AutoTokenizer = None
+    AutoModelForSeq2SeqLM = None
+    pipeline = None
+    st.warning("Transformers library not fully available. Some features may be limited.")
 
 # Initialize session state for models
 if "embeddings" not in st.session_state:

@@ -43,15 +43,8 @@ def get_embeddings():
     if st.session_state.embeddings is None:
         st.session_state.embeddings = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-mpnet-base-v2",
-            model_kwargs={
-                'device': 'cpu',
-                'torch_dtype': 'torch.float32',  # Use float32 instead of float64
-                'low_cpu_mem_usage': True
-            },
-            encode_kwargs={
-                'normalize_embeddings': True,
-                'batch_size': 32  # Process in smaller batches
-            }
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
         )
     return st.session_state.embeddings
 

@@ -35,12 +35,28 @@ from langchain.prompts import PromptTemplate
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 from langchain.prompts import PromptTemplate
 
-# Initialize embeddings model
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-mpnet-base-v2",
-    model_kwargs={'device': 'cpu'},
-    encode_kwargs={'normalize_embeddings': True}
-)
+# Initialize session state for models
+if "embeddings" not in st.session_state:
+    st.session_state.embeddings = None
+
+def get_embeddings():
+    if st.session_state.embeddings is None:
+        st.session_state.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2",
+            model_kwargs={
+                'device': 'cpu',
+                'torch_dtype': 'torch.float32',  # Use float32 instead of float64
+                'low_cpu_mem_usage': True
+            },
+            encode_kwargs={
+                'normalize_embeddings': True,
+                'batch_size': 32  # Process in smaller batches
+            }
+        )
+    return st.session_state.embeddings
+
+# Get embeddings only when needed
+embeddings = get_embeddings()
 
 # Initialize session state variables
 if "chat_history" not in st.session_state:

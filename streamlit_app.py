@@ -173,19 +173,39 @@ Answer:"""
         ai_response = generate_contextual_response(question, key_info, mode, article_titles)
         confidence = calculate_response_confidence(key_info, question)
         
+        # Calculate accuracy score
+        accuracy_data = calculate_answer_accuracy(question, ai_response, key_info, articles)
+        
         return [{
             'type': 'ai_response',
             'title': f'AI Analysis ({mode})',
             'content': ai_response,
             'confidence': confidence,
+            'accuracy': accuracy_data,
             'sources': article_titles
         }]
     else:
+        # Low accuracy for responses with no key info
+        accuracy_data = {
+            'overall_accuracy': 0.2,
+            'content_relevance': 0.1,
+            'factual_consistency': 0.2,
+            'information_coverage': 0.1,
+            'source_reliability': 0.3,
+            'details': {
+                'question_words_matched': 0,
+                'total_question_words': len(set(re.findall(r'\b\w+\b', question.lower()))),
+                'sources_analyzed': len(articles),
+                'key_info_pieces': 0
+            }
+        }
+        
         return [{
             'type': 'ai_response',
             'title': 'AI Analysis',
             'content': f"Based on the available articles, I don't find specific information directly answering '{question}'. However, the articles discuss {', '.join(article_titles)}. You might want to rephrase your question or ask about topics more closely related to the article content.",
-            'confidence': 0.3
+            'confidence': 0.3,
+            'accuracy': accuracy_data
         }]
 
 def extract_key_information(content, question):
@@ -299,6 +319,158 @@ def calculate_response_confidence(key_info, question):
         base_confidence += 0.1
     
     return min(0.95, base_confidence)
+
+def calculate_answer_accuracy(question, response_content, key_info, articles):
+    """Calculate accuracy score based on multiple factors"""
+    
+    # Initialize accuracy components
+    content_relevance = 0.0
+    factual_consistency = 0.0
+    information_coverage = 0.0
+    source_reliability = 0.0
+    
+    question_lower = question.lower()
+    response_lower = response_content.lower()
+    
+    # 1. Content Relevance (0-1): How well the response addresses the question
+    question_words = set(re.findall(r'\b\w+\b', question_lower))
+    response_words = set(re.findall(r'\b\w+\b', response_lower))
+    
+    # Remove stop words for better analysis
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    meaningful_question_words = question_words - stop_words
+    meaningful_response_words = response_words - stop_words
+    
+    if meaningful_question_words:
+        overlap = len(meaningful_question_words.intersection(meaningful_response_words))
+        content_relevance = min(1.0, overlap / len(meaningful_question_words))
+    
+    # 2. Factual Consistency (0-1): How well the response matches source content
+    if key_info:
+        total_source_content = ' '.join(key_info).lower()
+        source_words = set(re.findall(r'\b\w+\b', total_source_content))
+        
+        # Check how many response facts can be traced back to sources
+        response_claims = extract_factual_claims(response_content)
+        verified_claims = 0
+        
+        for claim in response_claims:
+            claim_words = set(re.findall(r'\b\w+\b', claim.lower()))
+            if claim_words.intersection(source_words):
+                verified_claims += 1
+        
+        if response_claims:
+            factual_consistency = verified_claims / len(response_claims)
+        else:
+            factual_consistency = 0.8  # Default for responses without specific claims
+    
+    # 3. Information Coverage (0-1): How comprehensive the response is
+    if key_info:
+        # Check if response covers multiple pieces of key information
+        coverage_score = 0
+        for info in key_info:
+            info_words = set(re.findall(r'\b\w+\b', info.lower()))
+            if info_words.intersection(meaningful_response_words):
+                coverage_score += 1
+        
+        information_coverage = min(1.0, coverage_score / len(key_info))
+    
+    # 4. Source Reliability (0-1): Based on article quality and content length
+    total_content_length = sum(len(article.get('content', '')) for article in articles)
+    article_count = len(articles)
+    
+    if total_content_length > 2000:
+        source_reliability = 0.9
+    elif total_content_length > 1000:
+        source_reliability = 0.7
+    elif total_content_length > 500:
+        source_reliability = 0.5
+    else:
+        source_reliability = 0.3
+    
+    # Bonus for multiple sources
+    if article_count > 1:
+        source_reliability = min(1.0, source_reliability + 0.1)
+    
+    # Calculate weighted accuracy score
+    weights = {
+        'content_relevance': 0.35,
+        'factual_consistency': 0.30,
+        'information_coverage': 0.25,
+        'source_reliability': 0.10
+    }
+    
+    accuracy_score = (
+        content_relevance * weights['content_relevance'] +
+        factual_consistency * weights['factual_consistency'] +
+        information_coverage * weights['information_coverage'] +
+        source_reliability * weights['source_reliability']
+    )
+    
+    # Return detailed breakdown
+    return {
+        'overall_accuracy': min(0.98, accuracy_score),
+        'content_relevance': content_relevance,
+        'factual_consistency': factual_consistency,
+        'information_coverage': information_coverage,
+        'source_reliability': source_reliability,
+        'details': {
+            'question_words_matched': len(meaningful_question_words.intersection(meaningful_response_words)),
+            'total_question_words': len(meaningful_question_words),
+            'sources_analyzed': len(articles),
+            'key_info_pieces': len(key_info) if key_info else 0
+        }
+    }
+
+def extract_factual_claims(text):
+    """Extract potential factual claims from response text"""
+    # Split into sentences and identify factual statements
+    sentences = re.split(r'[.!?]+', text)
+    factual_claims = []
+    
+    # Look for sentences that make specific claims
+    factual_indicators = [
+        'said', 'reported', 'announced', 'revealed', 'showed', 'indicated',
+        'increased', 'decreased', 'rose', 'fell', 'gained', 'lost',
+        'will', 'plans to', 'expects', 'projected', 'estimated'
+    ]
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) > 20:  # Meaningful length
+            sentence_lower = sentence.lower()
+            if any(indicator in sentence_lower for indicator in factual_indicators):
+                factual_claims.append(sentence)
+            # Also include sentences with numbers (likely factual)
+            elif re.search(r'\d+', sentence):
+                factual_claims.append(sentence)
+    
+    return factual_claims[:5]  # Limit to avoid overwhelming analysis
+
+def format_accuracy_display(accuracy_data):
+    """Format accuracy information for display"""
+    overall = accuracy_data['overall_accuracy']
+    
+    # Determine accuracy level and color
+    if overall >= 0.8:
+        level = "High"
+        color = "success"
+        icon = "✅"
+    elif overall >= 0.6:
+        level = "Medium"
+        color = "warning"
+        icon = "⚠️"
+    else:
+        level = "Low"
+        color = "error"
+        icon = "❌"
+    
+    return {
+        'level': level,
+        'color': color,
+        'icon': icon,
+        'percentage': f"{overall:.1%}"
+    }
 
 # Function to generate article summary
 @st.cache_data(ttl=3600)
@@ -730,18 +902,62 @@ if st.session_state.articles:
                 ai_results = ai_powered_answer(question, st.session_state.articles, ai_mode, use_context)
                 
                 for ai_result in ai_results:
-                    st.success(f"🧠 AI Analysis Complete (Confidence: {ai_result.get('confidence', 0.5):.1%})")
+                    confidence = ai_result.get('confidence', 0.5)
+                    accuracy_data = ai_result.get('accuracy', {})
+                    accuracy_display = format_accuracy_display(accuracy_data)
+                    
+                    st.success(f"🧠 AI Analysis Complete")
+                    
+                    # Display confidence and accuracy metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("🎯 Confidence", f"{confidence:.1%}")
+                    with col2:
+                        st.metric(f"{accuracy_display['icon']} Accuracy", accuracy_display['percentage'])
+                    with col3:
+                        st.metric("📊 Relevance", f"{accuracy_data.get('content_relevance', 0):.1%}")
+                    with col4:
+                        st.metric("✅ Consistency", f"{accuracy_data.get('factual_consistency', 0):.1%}")
                     
                     with st.expander(f"🤖 {ai_result['title']}", expanded=True):
                         st.markdown(ai_result['content'])
+                        
+                        # Detailed accuracy breakdown
+                        st.markdown("### 📊 Answer Quality Analysis")
+                        
+                        acc_col1, acc_col2 = st.columns(2)
+                        with acc_col1:
+                            st.markdown("**Accuracy Components:**")
+                            st.progress(accuracy_data.get('content_relevance', 0), text=f"Content Relevance: {accuracy_data.get('content_relevance', 0):.1%}")
+                            st.progress(accuracy_data.get('factual_consistency', 0), text=f"Factual Consistency: {accuracy_data.get('factual_consistency', 0):.1%}")
+                            st.progress(accuracy_data.get('information_coverage', 0), text=f"Information Coverage: {accuracy_data.get('information_coverage', 0):.1%}")
+                            st.progress(accuracy_data.get('source_reliability', 0), text=f"Source Reliability: {accuracy_data.get('source_reliability', 0):.1%}")
+                        
+                        with acc_col2:
+                            details = accuracy_data.get('details', {})
+                            st.markdown("**Analysis Details:**")
+                            st.write(f"• Question words matched: {details.get('question_words_matched', 0)}/{details.get('total_question_words', 0)}")
+                            st.write(f"• Sources analyzed: {details.get('sources_analyzed', 0)}")
+                            st.write(f"• Key information pieces: {details.get('key_info_pieces', 0)}")
+                            
+                            # Overall accuracy assessment
+                            overall_acc = accuracy_data.get('overall_accuracy', 0)
+                            if overall_acc >= 0.8:
+                                st.success(f"🎯 High accuracy response ({overall_acc:.1%})")
+                                st.info("This response is highly reliable and well-supported by the source content.")
+                            elif overall_acc >= 0.6:
+                                st.warning(f"⚠️ Medium accuracy response ({overall_acc:.1%})")
+                                st.info("This response is moderately reliable. Some claims may need verification.")
+                            else:
+                                st.error(f"❌ Low accuracy response ({overall_acc:.1%})")
+                                st.info("This response has limited reliability. Consider asking more specific questions or providing additional sources.")
                         
                         if ai_result.get('sources'):
                             st.markdown("**📚 Sources analyzed:**")
                             for source in ai_result['sources']:
                                 st.markdown(f"• {source}")
                         
-                        # Confidence indicator
-                        confidence = ai_result.get('confidence', 0.5)
+                        # Confidence indicator (legacy display)
                         if confidence > 0.7:
                             st.success(f"High confidence response ({confidence:.1%})")
                         elif confidence > 0.4:

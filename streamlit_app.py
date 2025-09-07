@@ -103,81 +103,47 @@ def load_simple_llm():
 def ai_powered_answer(question, articles, mode="Detailed", use_context=True):
     """Generate AI-powered answers using article content and LLM reasoning"""
     
-    # Combine all article content with better structure
-    combined_content = ""
-    article_titles = []
-    full_articles = []
-    
-    for i, article in enumerate(articles):
-        content = article.get('content', '')
-        title = article.get('title', f'Article {i+1}')
-        article_titles.append(title)
-        
-        if content:
-            # Store full article for detailed analysis
-            full_articles.append({
-                'title': title,
-                'content': content,
-                'url': article.get('url', ''),
-                'domain': article.get('domain', '')
-            })
-            # Combine content with better formatting
-            combined_content += f"\n\n=== {title} ===\n{content[:2000]}"  # Increased limit
-    
-    if not combined_content.strip():
+    if not articles:
         return [{
             'type': 'ai_response',
             'title': 'AI Analysis',
-            'content': "⚠️ No article content available for AI analysis.",
+            'content': "⚠️ No articles available for analysis.",
             'confidence': 0
         }]
     
-    # Enhanced question analysis and information extraction
-    question_analysis = analyze_question_intent(question)
-    relevant_info = extract_question_specific_information(question, full_articles, question_analysis)
+    # Extract clean information using the new system
+    extracted_info = extract_clean_information(question, articles)
     
-    # Generate more sophisticated response
-    if relevant_info['found_specific_info']:
-        ai_response = generate_detailed_response(question, relevant_info, mode, question_analysis)
-        confidence = calculate_enhanced_confidence(relevant_info, question_analysis)
-        
-        # Calculate accuracy score with better metrics
-        accuracy_data = calculate_answer_accuracy(question, ai_response, relevant_info['key_sentences'], articles)
-        
-        return [{
-            'type': 'ai_response',
-            'title': f'AI Analysis ({mode})',
-            'content': ai_response,
-            'confidence': confidence,
-            'accuracy': accuracy_data,
-            'sources': article_titles,
-            'specific_findings': relevant_info.get('specific_data', [])
-        }]
-    else:
-        # Provide helpful guidance when no specific info found
-        fallback_response = generate_fallback_response(question, article_titles, full_articles)
-        
-        accuracy_data = {
-            'overall_accuracy': 0.3,
-            'content_relevance': 0.2,
-            'factual_consistency': 0.3,
-            'information_coverage': 0.1,
-            'source_reliability': 0.5,
-            'details': {
-                'question_words_matched': 0,
-                'total_question_words': len(set(re.findall(r'\b\w+\b', question.lower()))),
-                'sources_analyzed': len(articles),
-                'key_info_pieces': 0
-            }
-        }
-        
-        return [{
-            'type': 'ai_response',
-            'title': 'AI Analysis',
-            'content': fallback_response,
-            'confidence': 0.3,
-            'accuracy': accuracy_data
-        }]
+    # Generate comprehensive, clean response
+    ai_response = generate_comprehensive_answer(question, extracted_info, mode)
+    
+    # Calculate confidence based on information quality
+    confidence = 0.3  # Base confidence
+    
+    if extracted_info['direct_answers']:
+        confidence += 0.3
+    if extracted_info['financial_data']:
+        confidence += 0.2
+    if extracted_info['detailed_content']:
+        confidence += 0.2
+    
+    confidence = min(0.95, confidence)
+    
+    # Calculate accuracy score
+    all_content = (extracted_info['direct_answers'] + 
+                  extracted_info['detailed_content'] + 
+                  extracted_info['supporting_facts'])
+    
+    accuracy_data = calculate_answer_accuracy(question, ai_response, all_content, articles)
+    
+    return [{
+        'type': 'ai_response',
+        'title': f'AI Analysis ({mode})',
+        'content': ai_response,
+        'confidence': confidence,
+        'accuracy': accuracy_data,
+        'sources': [article.get('title', 'Unknown') for article in articles]
+    }]
 
 def analyze_question_intent(question):
     """Analyze the question to understand what type of information is being requested"""
@@ -381,7 +347,203 @@ def extract_question_specific_information(question, articles, question_analysis)
     
     return relevant_info
 
-def generate_detailed_response(question, relevant_info, mode, question_analysis):
+def clean_text_content(text):
+    """Clean and normalize text content to remove junk characters and formatting issues"""
+    if not text or not isinstance(text, str):
+        return ""
+    
+    # Remove control characters and normalize unicode
+    import unicodedata
+    text = unicodedata.normalize('NFKD', text)
+    
+    # Remove HTML entities and tags
+    import html
+    text = html.unescape(text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    
+    # Fix common encoding issues
+    text = text.replace('\xa0', ' ')  # Non-breaking space
+    text = text.replace('\u2019', "'")  # Smart apostrophe
+    text = text.replace('\u201c', '"').replace('\u201d', '"')  # Smart quotes
+    text = text.replace('\u2013', '-').replace('\u2014', '-')  # Em and en dash
+    
+    # Remove excessive whitespace and normalize
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
+    
+    # Remove garbled character sequences
+    text = re.sub(r'[^\w\s.,;:!?()\-$%"\']+', ' ', text)
+    
+    # Fix broken words (like "callsonMicrosoft" -> "calls on Microsoft")
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    
+    return text
+
+def extract_clean_information(question, articles):
+    """Extract clean, relevant information from articles based on the question"""
+    
+    question_lower = question.lower()
+    question_words = set(re.findall(r'\b\w+\b', question_lower))
+    
+    # Remove stop words
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 
+                  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 
+                  'did', 'will', 'would', 'could', 'should', 'this', 'that', 'what', 'when', 'where', 
+                  'how', 'why', 'who'}
+    meaningful_words = question_words - stop_words
+    
+    extracted_info = {
+        'direct_answers': [],
+        'detailed_content': [],
+        'supporting_facts': [],
+        'financial_data': [],
+        'key_insights': []
+    }
+    
+    for article in articles:
+        content = article.get('content', '')
+        title = article.get('title', '')
+        
+        if not content:
+            continue
+        
+        # Clean the content first
+        clean_content = clean_text_content(content)
+        clean_title = clean_text_content(title)
+        
+        # Split into clean sentences
+        sentences = re.split(r'[.!?]+', clean_content)
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 20:  # Skip very short sentences
+                continue
+            
+            sentence_lower = sentence.lower()
+            relevance_score = 0
+            
+            # Score based on question word matches
+            for word in meaningful_words:
+                if len(word) > 2 and word in sentence_lower:
+                    relevance_score += 2
+            
+            # Bonus for financial data
+            if re.search(r'\$\d+|\d+%|\d+\.\d+%|\d+\s*(million|billion|trillion)', sentence):
+                relevance_score += 3
+                
+            # Bonus for current/recent information
+            if any(word in sentence_lower for word in ['today', 'current', 'recent', 'latest', 'now']):
+                relevance_score += 2
+                
+            # Bonus for company names
+            if any(company in sentence_lower for company in ['microsoft', 'apple', 'google', 'amazon', 'tesla']):
+                relevance_score += 2
+            
+            # Categorize information based on relevance and content type
+            if relevance_score >= 4:
+                # High relevance - likely direct answer
+                extracted_info['direct_answers'].append(sentence)
+            elif relevance_score >= 2:
+                # Medium relevance - supporting information
+                extracted_info['detailed_content'].append(sentence)
+            elif relevance_score > 0:
+                # Low relevance - background context
+                extracted_info['supporting_facts'].append(sentence)
+            
+            # Extract specific financial data
+            if re.search(r'\$\d+', sentence):
+                prices = re.findall(r'\$(\d+(?:,\d{3})*(?:\.\d{2})?)', sentence)
+                for price in prices:
+                    if float(price.replace(',', '')) > 1:  # Filter out tiny amounts
+                        extracted_info['financial_data'].append(f"${price}")
+            
+            # Extract percentages
+            percentages = re.findall(r'(\d+(?:\.\d+)?)%', sentence)
+            for pct in percentages:
+                extracted_info['financial_data'].append(f"{pct}%")
+    
+    return extracted_info
+
+def generate_comprehensive_answer(question, extracted_info, mode="Detailed"):
+    """Generate a comprehensive, clean answer based on extracted information"""
+    
+    response = ""
+    question_lower = question.lower()
+    
+    # Always start with direct answers if available
+    if extracted_info['direct_answers']:
+        response += f"**🎯 Direct Answer:**\n\n"
+        
+        # Show top 3 most relevant direct answers
+        for i, answer in enumerate(extracted_info['direct_answers'][:3], 1):
+            clean_answer = clean_text_content(answer)
+            response += f"{i}. {clean_answer}\n\n"
+    
+    # Add financial data if found
+    if extracted_info['financial_data']:
+        response += f"**💰 Key Financial Data:**\n"
+        unique_data = list(set(extracted_info['financial_data']))  # Remove duplicates
+        for data in unique_data[:5]:  # Show top 5 unique data points
+            response += f"• {data}\n"
+        response += "\n"
+    
+    # Add detailed content based on mode
+    if mode == "Detailed" and extracted_info['detailed_content']:
+        response += f"**📊 Detailed Information:**\n\n"
+        
+        # Show up to 4 pieces of detailed content
+        for i, detail in enumerate(extracted_info['detailed_content'][:4], 1):
+            clean_detail = clean_text_content(detail)
+            if len(clean_detail) > 200:
+                clean_detail = clean_detail[:200] + "..."
+            response += f"{i}. {clean_detail}\n\n"
+    
+    elif mode == "Concise":
+        # For concise mode, just show the best direct answer
+        if extracted_info['direct_answers']:
+            best_answer = clean_text_content(extracted_info['direct_answers'][0])
+            if len(best_answer) > 150:
+                best_answer = best_answer[:150] + "..."
+            response += f"**Summary:** {best_answer}\n\n"
+    
+    elif mode == "Analytical":
+        # For analytical mode, focus on insights and implications
+        if extracted_info['direct_answers'] or extracted_info['detailed_content']:
+            response += f"**📈 Analysis & Insights:**\n\n"
+            
+            # Combine direct answers and detailed content for analysis
+            all_content = extracted_info['direct_answers'] + extracted_info['detailed_content']
+            
+            response += f"• **Key Finding:** {clean_text_content(all_content[0])}\n\n"
+            
+            if len(all_content) > 1:
+                response += f"• **Supporting Evidence:** {clean_text_content(all_content[1])}\n\n"
+            
+            response += f"• **Market Implications:** This information provides insights into current market conditions and business developments.\n\n"
+    
+    # Add supporting facts if there's space and content
+    if extracted_info['supporting_facts'] and len(response) < 1500:
+        response += f"**📝 Additional Context:**\n"
+        
+        # Show 2 best supporting facts
+        for fact in extracted_info['supporting_facts'][:2]:
+            clean_fact = clean_text_content(fact)
+            if len(clean_fact) > 150:
+                clean_fact = clean_fact[:150] + "..."
+            response += f"• {clean_fact}\n"
+    
+    # If no relevant information found, provide helpful guidance
+    if not any([extracted_info['direct_answers'], extracted_info['detailed_content'], 
+                extracted_info['supporting_facts'], extracted_info['financial_data']]):
+        response = f"**❌ No Specific Information Found**\n\n"
+        response += f"I searched through the available articles but couldn't find specific information to answer '{question}'.\n\n"
+        response += f"**💡 Suggestions:**\n"
+        response += f"• Try asking about topics that are mentioned in the article titles\n"
+        response += f"• Rephrase your question using different keywords\n"
+        response += f"• Ask more general questions about the content\n"
+        response += f"• Try questions like 'What are the main themes?' or 'Summarize the key points'\n"
+    
+    return response
     """Generate a detailed, question-specific response"""
     
     response = ""

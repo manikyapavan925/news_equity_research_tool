@@ -203,7 +203,7 @@ Answer:"""
         return [{
             'type': 'ai_response',
             'title': 'AI Analysis',
-            'content': f"Based on the available articles, I don't find specific information directly answering '{question}'. However, the articles discuss {', '.join(article_titles)}. You might want to rephrase your question or ask about topics more closely related to the article content.",
+            'content': f"⚠️ **No specific answer found for '{question}'**\n\nThe available articles discuss {', '.join(article_titles)}, but don't contain specific information to directly answer your question.\n\n💡 **Suggestions:**\n• Try asking about topics mentioned in the articles\n• Rephrase your question using different keywords\n• Add more relevant news articles about your topic\n• Ask about general trends or analysis instead of specific data points\n\n📰 **Available article topics:** {', '.join(article_titles)}",
             'confidence': 0.3,
             'accuracy': accuracy_data
         }]
@@ -213,16 +213,18 @@ def extract_key_information(content, question):
     content_lower = content.lower()
     question_lower = question.lower()
     
-    # Financial keywords mapping
+    # Enhanced financial keywords mapping
     financial_keywords = {
-        'stock': ['stock', 'share', 'equity', 'shares'],
-        'price': ['price', 'cost', 'value', 'worth', 'trading'],
-        'earnings': ['earnings', 'profit', 'revenue', 'income'],
-        'company': ['company', 'corporation', 'firm', 'business'],
-        'market': ['market', 'trading', 'exchange', 'nasdaq', 'nyse'],
+        'stock': ['stock', 'share', 'equity', 'shares', 'ticker'],
+        'price': ['price', 'cost', 'value', 'worth', 'trading', 'quote', 'priced'],
+        'earnings': ['earnings', 'profit', 'revenue', 'income', 'eps'],
+        'company': ['company', 'corporation', 'firm', 'business', 'corp'],
+        'market': ['market', 'trading', 'exchange', 'nasdaq', 'nyse', 'dow'],
         'merger': ['merger', 'acquisition', 'buyout', 'takeover'],
-        'growth': ['growth', 'increase', 'rise', 'gain'],
-        'decline': ['decline', 'decrease', 'fall', 'drop', 'loss']
+        'growth': ['growth', 'increase', 'rise', 'gain', 'up', 'higher'],
+        'decline': ['decline', 'decrease', 'fall', 'drop', 'loss', 'down', 'lower'],
+        'microsoft': ['microsoft', 'msft', 'redmond', 'satya nadella'],
+        'current': ['current', 'today', 'now', 'present', 'latest', 'recent']
     }
     
     # Find relevant sentences based on question keywords
@@ -230,14 +232,35 @@ def extract_key_information(content, question):
     sentences = re.split(r'[.!?]+', content)
     relevant_info = []
     
+    # Special handling for price questions
+    is_price_question = any(word in question_lower for word in ['price', 'cost', 'trading', 'worth', 'value'])
+    is_microsoft_question = any(word in question_lower for word in ['microsoft', 'msft'])
+    
     for sentence in sentences:
-        if len(sentence.strip()) > 20:
+        if len(sentence.strip()) > 15:
             sentence_lower = sentence.lower()
             relevance_score = 0
             
+            # High priority for sentences with price information
+            if is_price_question:
+                price_indicators = [
+                    r'\$\d+\.?\d*',  # $123.45
+                    r'\d+\.\d+',     # 123.45
+                    r'price', 'trading', 'worth', 'value', 'cost', 'quote'
+                ]
+                
+                for indicator in price_indicators:
+                    if re.search(indicator, sentence_lower):
+                        relevance_score += 5
+            
+            # High priority for Microsoft-related content if asking about Microsoft
+            if is_microsoft_question:
+                if any(term in sentence_lower for term in ['microsoft', 'msft']):
+                    relevance_score += 4
+            
             # Check for direct question word matches
             for word in question_words:
-                if word in sentence_lower:
+                if len(word) > 2 and word in sentence_lower:  # Ignore short words
                     relevance_score += 2
             
             # Check for financial keyword matches
@@ -246,12 +269,30 @@ def extract_key_information(content, question):
                     if any(keyword in sentence_lower for keyword in keywords):
                         relevance_score += 3
             
+            # Bonus for sentences with numbers (likely contain specific data)
+            if re.search(r'\d+', sentence):
+                relevance_score += 1
+            
+            # Bonus for recent/current information
+            if any(word in sentence_lower for word in ['today', 'current', 'now', 'latest', 'recent']):
+                relevance_score += 2
+            
             if relevance_score > 1:
                 relevant_info.append((sentence.strip(), relevance_score))
     
     # Sort by relevance and return top sentences
     relevant_info.sort(key=lambda x: x[1], reverse=True)
-    return [info[0] for info in relevant_info[:5]]
+    
+    # If no highly relevant info found for price questions, be more lenient
+    if is_price_question and len(relevant_info) < 2:
+        for sentence in sentences:
+            if len(sentence.strip()) > 15:
+                sentence_lower = sentence.lower()
+                if any(word in sentence_lower for word in ['stock', 'share', 'market', 'trading']):
+                    if (sentence.strip(), 1) not in relevant_info:
+                        relevant_info.append((sentence.strip(), 1))
+    
+    return [info[0] for info in relevant_info[:7]]  # Return more results for better context
 
 def generate_contextual_response(question, key_info, mode, sources):
     """Generate a contextual response based on extracted information"""
@@ -260,6 +301,9 @@ def generate_contextual_response(question, key_info, mode, sources):
         return "I couldn't find specific information related to your question in the available articles."
     
     question_lower = question.lower()
+    
+    # Check for specific factual questions that need direct answers
+    specific_answer = find_specific_answer(question_lower, key_info)
     
     # Analyze question type
     if any(word in question_lower for word in ['what', 'about', 'describe', 'explain']):
@@ -275,7 +319,14 @@ def generate_contextual_response(question, key_info, mode, sources):
     
     # Build response based on mode and type
     if mode == "Detailed":
-        response = f"Based on my analysis of the articles, here's a comprehensive answer to your question:\n\n"
+        response = ""
+        
+        # If we found a specific answer, lead with it
+        if specific_answer:
+            response = f"**Direct Answer:** {specific_answer}\n\n"
+            response += f"**Additional Context from Analysis:**\n\n"
+        else:
+            response = f"Based on my analysis of the articles, here's a comprehensive answer to your question:\n\n"
         
         for i, info in enumerate(key_info[:3], 1):
             response += f"{i}. {info}\n\n"
@@ -288,13 +339,22 @@ def generate_contextual_response(question, key_info, mode, sources):
         response += f"\n**Sources analyzed:** {', '.join(sources)}"
     
     elif mode == "Concise":
-        response = f"**Key Answer:** {key_info[0]}"
-        if len(key_info) > 1:
-            response += f"\n\n**Additional context:** {key_info[1]}"
+        if specific_answer:
+            response = f"**Answer:** {specific_answer}"
+            if len(key_info) > 0:
+                response += f"\n\n**Context:** {key_info[0][:200]}..."
+        else:
+            response = f"**Key Answer:** {key_info[0]}"
+            if len(key_info) > 1:
+                response += f"\n\n**Additional context:** {key_info[1]}"
     
     else:  # Analytical
         response = f"**Analysis for '{question}':**\n\n"
-        response += f"**Key findings:**\n{key_info[0]}\n\n"
+        
+        if specific_answer:
+            response += f"**Direct Answer:** {specific_answer}\n\n"
+        
+        response += f"**Key findings:** {key_info[0]}\n\n"
         
         if len(key_info) > 1:
             response += f"**Supporting evidence:**\n"
@@ -304,6 +364,78 @@ def generate_contextual_response(question, key_info, mode, sources):
         response += f"\n**Implications:** This information suggests important developments that may impact market sentiment and business operations."
     
     return response
+
+def find_specific_answer(question_lower, key_info):
+    """Find specific factual answers from the extracted information"""
+    
+    # Join all key info for comprehensive search
+    all_info = " ".join(key_info).lower()
+    
+    # Price-related questions
+    if any(word in question_lower for word in ['price', 'cost', 'trading', 'worth', 'value']):
+        # Look for price patterns like $123.45, $123, 123.45, etc.
+        price_patterns = [
+            r'\$\d+\.?\d*',  # $123.45 or $123
+            r'\d+\.\d+\s*(?:dollars?|usd|\$)',  # 123.45 dollars
+            r'(?:price|trading|worth|value|cost)(?:\s+(?:is|at|of))?\s*\$?\d+\.?\d*',  # price is $123
+            r'\$?\d+\.?\d*\s*(?:per share|each|dollar)',  # $123 per share
+        ]
+        
+        for pattern in price_patterns:
+            matches = re.findall(pattern, all_info)
+            if matches:
+                return f"The current price mentioned is {matches[0]}"
+    
+    # Date/time questions
+    if any(word in question_lower for word in ['when', 'date', 'time']):
+        date_patterns = [
+            r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}',
+            r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+            r'\b\d{4}-\d{2}-\d{2}\b'
+        ]
+        
+        for pattern in date_patterns:
+            matches = re.findall(pattern, all_info, re.IGNORECASE)
+            if matches:
+                return f"The date mentioned is {matches[0]}"
+    
+    # Percentage questions
+    if any(word in question_lower for word in ['percent', 'percentage', '%', 'rate']):
+        percentage_patterns = [
+            r'\d+\.?\d*\s*%',
+            r'\d+\.?\d*\s*percent'
+        ]
+        
+        for pattern in percentage_patterns:
+            matches = re.findall(pattern, all_info)
+            if matches:
+                return f"The percentage mentioned is {matches[0]}"
+    
+    # Number/quantity questions
+    if any(word in question_lower for word in ['how many', 'number', 'count', 'quantity']):
+        number_patterns = [
+            r'\b\d+(?:,\d{3})*(?:\.\d+)?\b'
+        ]
+        
+        for pattern in number_patterns:
+            matches = re.findall(pattern, all_info)
+            if matches and len(matches) > 0:
+                return f"The number mentioned is {matches[0]}"
+    
+    # Company/person name questions
+    if any(word in question_lower for word in ['who', 'company', 'ceo', 'president']):
+        # Look for capitalized names/companies
+        name_patterns = [
+            r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b',  # First Last
+            r'\b[A-Z]{2,}\b'  # Acronyms like MSFT, AAPL
+        ]
+        
+        for pattern in name_patterns:
+            matches = re.findall(pattern, " ".join(key_info))
+            if matches:
+                return f"The entity mentioned is {matches[0]}"
+    
+    return None
 
 def calculate_response_confidence(key_info, question):
     """Calculate confidence score for the AI response"""

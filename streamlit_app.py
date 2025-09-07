@@ -346,12 +346,20 @@ if st.session_state.articles:
 # Enhanced Q&A Section
 st.header("💬 Smart Question Answering")
 if st.session_state.articles:
+    # Check for quick question from URL params
+    query_params = st.experimental_get_query_params()
+    default_question = query_params.get("question", [""])[0]
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         question = st.text_input("❓ Ask a question about the loaded articles:", 
+                                value=default_question,
                                 placeholder="e.g., What companies were mentioned? What are the main themes?")
     with col2:
         search_type = st.selectbox("Search Type", ["Keyword", "Semantic"], help="Keyword: exact word matching, Semantic: meaning-based")
+    # Clear query params if question was loaded
+    if default_question:
+        st.experimental_set_query_params()
     
     if question and st.button("🔍 Search Answer"):
         with st.spinner("Searching for relevant information..."):

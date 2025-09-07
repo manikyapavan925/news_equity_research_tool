@@ -1,23 +1,15 @@
 {
     "version": 2,
-    "functions": {
-        "src/app.py": {
-            "runtime": "@vercel/python",
-            "memory": 2048,
-            "maxDuration": 60
+    "builds": [
+        {
+            "src": "api/index.py",
+            "use": "@vercel/python"
         }
-    },
+    ],
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "/src/app.py"
+            "dest": "api/index.py"
         }
-    ],
-    "env": {
-        "PYTORCH_NO_CUDA": "1",
-        "TRANSFORMERS_OFFLINE": "0",
-        "TORCH_DEVICE": "cpu",
-        "TRANSFORMERS_CACHE": "/tmp/.transformers",
-        "HF_HOME": "/tmp/.huggingface"
-    }
+    ]
 }

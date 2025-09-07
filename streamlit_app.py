@@ -55,7 +55,7 @@ st.markdown("""
 st.markdown("""
 <div class="main-header">
     <h1>📰 News Research Assistant</h1>
-    <p>Streamlit Cloud Edition - Analyze Financial News with AI</p>
+    <p>Analyze Financial News with AI</p>
 </div>
 """, unsafe_allow_html=True)
 

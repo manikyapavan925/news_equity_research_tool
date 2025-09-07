@@ -7,7 +7,7 @@ import pandas as pd
 from urllib.parse import urlparse
 import time
 
-# Streamlit page configuration - optimized for Streamlit Cloud
+# Streamlit page configuration - optimized for deployment
 st.set_page_config(
     page_title="News Research Assistant", 
     page_icon="📰", 

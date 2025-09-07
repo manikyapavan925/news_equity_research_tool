@@ -103,9 +103,10 @@ def load_simple_llm():
 def ai_powered_answer(question, articles, mode="Detailed", use_context=True):
     """Generate AI-powered answers using article content and LLM reasoning"""
     
-    # Combine all article content
+    # Combine all article content with better structure
     combined_content = ""
     article_titles = []
+    full_articles = []
     
     for i, article in enumerate(articles):
         content = article.get('content', '')
@@ -113,7 +114,15 @@ def ai_powered_answer(question, articles, mode="Detailed", use_context=True):
         article_titles.append(title)
         
         if content:
-            combined_content += f"\n\n--- {title} ---\n{content[:1000]}"  # Limit per article
+            # Store full article for detailed analysis
+            full_articles.append({
+                'title': title,
+                'content': content,
+                'url': article.get('url', ''),
+                'domain': article.get('domain', '')
+            })
+            # Combine content with better formatting
+            combined_content += f"\n\n=== {title} ===\n{content[:2000]}"  # Increased limit
     
     if not combined_content.strip():
         return [{
@@ -123,58 +132,17 @@ def ai_powered_answer(question, articles, mode="Detailed", use_context=True):
             'confidence': 0
         }]
     
-    # Create intelligent prompt based on the question and mode
-    if mode == "Detailed":
-        prompt_template = f"""Based on the following news articles, provide a comprehensive and detailed answer to this question: "{question}"
-
-Article Content:
-{combined_content[:3000]}
-
-Please provide a thorough analysis that includes:
-1. Direct answers from the article content
-2. Relevant context and background information
-3. Key insights and implications
-4. Any financial or business implications mentioned
-
-Answer:"""
+    # Enhanced question analysis and information extraction
+    question_analysis = analyze_question_intent(question)
+    relevant_info = extract_question_specific_information(question, full_articles, question_analysis)
     
-    elif mode == "Concise":
-        prompt_template = f"""Based on the following news articles, provide a brief and concise answer to this question: "{question}"
-
-Article Content:
-{combined_content[:2000]}
-
-Provide a clear, direct answer in 2-3 sentences focusing on the most important points.
-
-Answer:"""
-    
-    else:  # Analytical
-        prompt_template = f"""Based on the following news articles, provide an analytical answer to this question: "{question}"
-
-Article Content:
-{combined_content[:3000]}
-
-Please provide an analytical response that includes:
-1. Key trends and patterns identified
-2. Potential impact and implications
-3. Market or business analysis
-4. Forward-looking insights
-
-Answer:"""
-    
-    # For now, provide intelligent rule-based responses until full LLM integration
-    # This creates contextual answers based on article content
-    
-    # Extract key information from articles
-    key_info = extract_key_information(combined_content, question)
-    
-    # Generate structured response
-    if key_info:
-        ai_response = generate_contextual_response(question, key_info, mode, article_titles)
-        confidence = calculate_response_confidence(key_info, question)
+    # Generate more sophisticated response
+    if relevant_info['found_specific_info']:
+        ai_response = generate_detailed_response(question, relevant_info, mode, question_analysis)
+        confidence = calculate_enhanced_confidence(relevant_info, question_analysis)
         
-        # Calculate accuracy score
-        accuracy_data = calculate_answer_accuracy(question, ai_response, key_info, articles)
+        # Calculate accuracy score with better metrics
+        accuracy_data = calculate_answer_accuracy(question, ai_response, relevant_info['key_sentences'], articles)
         
         return [{
             'type': 'ai_response',
@@ -182,16 +150,19 @@ Answer:"""
             'content': ai_response,
             'confidence': confidence,
             'accuracy': accuracy_data,
-            'sources': article_titles
+            'sources': article_titles,
+            'specific_findings': relevant_info.get('specific_data', [])
         }]
     else:
-        # Low accuracy for responses with no key info
+        # Provide helpful guidance when no specific info found
+        fallback_response = generate_fallback_response(question, article_titles, full_articles)
+        
         accuracy_data = {
-            'overall_accuracy': 0.2,
-            'content_relevance': 0.1,
-            'factual_consistency': 0.2,
+            'overall_accuracy': 0.3,
+            'content_relevance': 0.2,
+            'factual_consistency': 0.3,
             'information_coverage': 0.1,
-            'source_reliability': 0.3,
+            'source_reliability': 0.5,
             'details': {
                 'question_words_matched': 0,
                 'total_question_words': len(set(re.findall(r'\b\w+\b', question.lower()))),
@@ -203,10 +174,343 @@ Answer:"""
         return [{
             'type': 'ai_response',
             'title': 'AI Analysis',
-            'content': f"⚠️ **No specific answer found for '{question}'**\n\nThe available articles discuss {', '.join(article_titles)}, but don't contain specific information to directly answer your question.\n\n💡 **Suggestions:**\n• Try asking about topics mentioned in the articles\n• Rephrase your question using different keywords\n• Add more relevant news articles about your topic\n• Ask about general trends or analysis instead of specific data points\n\n📰 **Available article topics:** {', '.join(article_titles)}",
+            'content': fallback_response,
             'confidence': 0.3,
             'accuracy': accuracy_data
         }]
+
+def analyze_question_intent(question):
+    """Analyze the question to understand what type of information is being requested"""
+    question_lower = question.lower()
+    
+    intent = {
+        'type': 'general',
+        'entities': [],
+        'data_type': None,
+        'timeframe': None,
+        'specificity': 'general'
+    }
+    
+    # Identify question type
+    if any(word in question_lower for word in ['what is', 'what are', 'describe', 'explain', 'tell me about']):
+        intent['type'] = 'descriptive'
+    elif any(word in question_lower for word in ['why', 'reason', 'cause', 'because']):
+        intent['type'] = 'causal'
+    elif any(word in question_lower for word in ['how', 'process', 'method', 'way']):
+        intent['type'] = 'procedural'
+    elif any(word in question_lower for word in ['when', 'time', 'date', 'timeline']):
+        intent['type'] = 'temporal'
+    elif any(word in question_lower for word in ['where', 'location', 'place']):
+        intent['type'] = 'location'
+    elif any(word in question_lower for word in ['who', 'person', 'company', 'organization']):
+        intent['type'] = 'entity'
+    elif any(word in question_lower for word in ['how much', 'how many', 'price', 'cost', 'value', 'amount']):
+        intent['type'] = 'quantitative'
+    
+    # Identify specific entities
+    entities = []
+    companies = ['microsoft', 'msft', 'apple', 'aapl', 'google', 'googl', 'amazon', 'amzn', 'tesla', 'tsla', 'meta', 'fb']
+    for company in companies:
+        if company in question_lower:
+            entities.append(company.upper() if len(company) <= 4 else company.title())
+    intent['entities'] = entities
+    
+    # Identify data type being requested
+    if any(word in question_lower for word in ['price', 'cost', 'trading', 'value', 'worth', 'quote']):
+        intent['data_type'] = 'price'
+    elif any(word in question_lower for word in ['earnings', 'revenue', 'profit', 'income', 'eps']):
+        intent['data_type'] = 'earnings'
+    elif any(word in question_lower for word in ['volume', 'shares', 'traded']):
+        intent['data_type'] = 'volume'
+    elif any(word in question_lower for word in ['news', 'announcement', 'report']):
+        intent['data_type'] = 'news'
+    elif any(word in question_lower for word in ['trend', 'pattern', 'movement']):
+        intent['data_type'] = 'trend'
+    
+    # Identify timeframe
+    if any(word in question_lower for word in ['current', 'now', 'today', 'latest', 'recent']):
+        intent['timeframe'] = 'current'
+    elif any(word in question_lower for word in ['yesterday', 'past', 'previous', 'last']):
+        intent['timeframe'] = 'past'
+    elif any(word in question_lower for word in ['future', 'will', 'forecast', 'prediction']):
+        intent['timeframe'] = 'future'
+    
+    # Determine specificity
+    specific_indicators = ['exact', 'specific', 'precise', 'current', 'latest']
+    if any(indicator in question_lower for indicator in specific_indicators):
+        intent['specificity'] = 'specific'
+    
+    return intent
+
+def extract_question_specific_information(question, articles, question_analysis):
+    """Extract information specifically relevant to the question being asked"""
+    question_lower = question.lower()
+    question_words = set(re.findall(r'\b\w+\b', question_lower))
+    
+    # Remove stop words for better matching
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'this', 'that'}
+    meaningful_words = question_words - stop_words
+    
+    relevant_info = {
+        'found_specific_info': False,
+        'key_sentences': [],
+        'specific_data': [],
+        'context_sentences': [],
+        'relevance_scores': []
+    }
+    
+    # Search through all articles for relevant information
+    for article in articles:
+        content = article.get('content', '')
+        title = article.get('title', '')
+        
+        if not content:
+            continue
+            
+        # Split into sentences for analysis
+        sentences = re.split(r'[.!?]+', content)
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 20:  # Skip very short sentences
+                continue
+                
+            sentence_lower = sentence.lower()
+            relevance_score = 0
+            
+            # Score based on question intent
+            if question_analysis['type'] == 'quantitative':
+                # Look for numbers, prices, percentages
+                if re.search(r'\$\d+\.?\d*|\d+\.\d+%|\d+%|\d+,\d+|\d+\s*(million|billion|trillion)', sentence):
+                    relevance_score += 5
+                    
+            if question_analysis['data_type'] == 'price':
+                # Specifically look for price information
+                price_indicators = ['price', 'trading', 'cost', 'value', 'worth', '$', 'dollar', 'cent']
+                if any(indicator in sentence_lower for indicator in price_indicators):
+                    relevance_score += 4
+                    
+            if question_analysis['data_type'] == 'earnings':
+                # Look for earnings-related information
+                earnings_indicators = ['earnings', 'revenue', 'profit', 'income', 'eps', 'quarterly', 'annual']
+                if any(indicator in sentence_lower for indicator in earnings_indicators):
+                    relevance_score += 4
+            
+            # Score based on entity matches
+            for entity in question_analysis['entities']:
+                if entity.lower() in sentence_lower:
+                    relevance_score += 3
+                    
+            # Score based on keyword matches
+            for word in meaningful_words:
+                if len(word) > 2 and word in sentence_lower:
+                    relevance_score += 1
+                    
+            # Score based on timeframe
+            if question_analysis['timeframe'] == 'current':
+                current_indicators = ['today', 'current', 'now', 'latest', 'recent', 'this week', 'this month']
+                if any(indicator in sentence_lower for indicator in current_indicators):
+                    relevance_score += 2
+            
+            # Extract specific data if found
+            if relevance_score > 0:
+                # Extract prices
+                price_matches = re.findall(r'\$\d+\.?\d*', sentence)
+                if price_matches:
+                    relevant_info['specific_data'].extend([f"Price: {price}" for price in price_matches])
+                    
+                # Extract percentages
+                percent_matches = re.findall(r'\d+\.?\d*%', sentence)
+                if percent_matches:
+                    relevant_info['specific_data'].extend([f"Percentage: {percent}" for percent in percent_matches])
+                    
+                # Extract dates
+                date_matches = re.findall(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}', sentence, re.IGNORECASE)
+                if date_matches:
+                    relevant_info['specific_data'].extend([f"Date: {date}" for date in date_matches])
+            
+            # Add to relevant sentences if score is high enough
+            if relevance_score >= 2:
+                relevant_info['key_sentences'].append(sentence)
+                relevant_info['relevance_scores'].append(relevance_score)
+                relevant_info['found_specific_info'] = True
+            elif relevance_score > 0:
+                relevant_info['context_sentences'].append(sentence)
+    
+    # Sort by relevance score
+    if relevant_info['key_sentences']:
+        combined = list(zip(relevant_info['key_sentences'], relevant_info['relevance_scores']))
+        combined.sort(key=lambda x: x[1], reverse=True)
+        relevant_info['key_sentences'] = [item[0] for item in combined[:7]]  # Top 7 most relevant
+    
+    return relevant_info
+
+def generate_detailed_response(question, relevant_info, mode, question_analysis):
+    """Generate a detailed, question-specific response"""
+    
+    response = ""
+    question_lower = question.lower()
+    
+    # Start with direct answer if we have specific data
+    if relevant_info['specific_data']:
+        response += f"**📊 Direct Answer:**\n"
+        for data_point in relevant_info['specific_data'][:3]:  # Top 3 most relevant data points
+            response += f"• {data_point}\n"
+        response += "\n"
+    
+    # Provide context based on question type
+    if question_analysis['type'] == 'quantitative' and mode == "Detailed":
+        response += f"**🔍 Detailed Analysis for '{question}':**\n\n"
+        
+        if relevant_info['key_sentences']:
+            response += f"**Key Information Found:**\n"
+            for i, sentence in enumerate(relevant_info['key_sentences'][:4], 1):
+                response += f"{i}. {sentence}\n\n"
+        
+        if relevant_info['context_sentences']:
+            response += f"**Additional Context:**\n"
+            for sentence in relevant_info['context_sentences'][:2]:
+                response += f"• {sentence}\n"
+        
+    elif question_analysis['type'] == 'descriptive' and mode == "Detailed":
+        response += f"**📝 Comprehensive Description:**\n\n"
+        
+        if relevant_info['key_sentences']:
+            for i, sentence in enumerate(relevant_info['key_sentences'][:5], 1):
+                response += f"**Point {i}:** {sentence}\n\n"
+                
+    elif question_analysis['type'] == 'causal' and mode == "Detailed":
+        response += f"**🔍 Causal Analysis:**\n\n"
+        
+        if relevant_info['key_sentences']:
+            response += f"**Reasons and Causes Identified:**\n"
+            for i, sentence in enumerate(relevant_info['key_sentences'][:4], 1):
+                response += f"{i}. {sentence}\n\n"
+                
+    elif mode == "Concise":
+        if relevant_info['key_sentences']:
+            response += f"**Quick Answer:** {relevant_info['key_sentences'][0]}\n\n"
+            if len(relevant_info['key_sentences']) > 1:
+                response += f"**Additional Info:** {relevant_info['key_sentences'][1]}"
+                
+    elif mode == "Analytical":
+        response += f"**📈 Analytical Insights:**\n\n"
+        
+        if relevant_info['key_sentences']:
+            response += f"**Primary Findings:**\n"
+            for sentence in relevant_info['key_sentences'][:3]:
+                response += f"• {sentence}\n"
+            
+            response += f"\n**Market Implications:**\n"
+            response += f"• Based on the information found, this indicates significant market activity\n"
+            response += f"• The data suggests important developments that could impact investor sentiment\n"
+            
+            if question_analysis['entities']:
+                response += f"• Specific focus on {', '.join(question_analysis['entities'])} shows targeted market interest\n"
+    
+    # Add entity-specific information if available
+    if question_analysis['entities']:
+        response += f"\n**🏢 Company Focus:** Analysis specifically related to {', '.join(question_analysis['entities'])}\n"
+    
+    # Add timeframe context if relevant
+    if question_analysis['timeframe']:
+        response += f"\n**⏰ Timeframe:** Information relates to {question_analysis['timeframe']} market conditions\n"
+    
+    return response
+
+def generate_fallback_response(question, article_titles, articles):
+    """Generate a helpful fallback response when specific information isn't found"""
+    
+    question_lower = question.lower()
+    
+    # Analyze what topics are actually available in the articles
+    available_topics = []
+    companies_mentioned = set()
+    
+    for article in articles:
+        content = article.get('content', '').lower()
+        title = article.get('title', '').lower()
+        
+        # Extract company mentions
+        common_companies = ['microsoft', 'apple', 'google', 'amazon', 'tesla', 'meta', 'nvidia', 'intel']
+        for company in common_companies:
+            if company in content or company in title:
+                companies_mentioned.add(company.title())
+        
+        # Extract topic areas
+        if any(word in content for word in ['earnings', 'revenue', 'profit']):
+            available_topics.append('Earnings & Financial Performance')
+        if any(word in content for word in ['stock', 'trading', 'price', 'market']):
+            available_topics.append('Stock Market Activity')
+        if any(word in content for word in ['merger', 'acquisition', 'buyout']):
+            available_topics.append('M&A Activity')
+        if any(word in content for word in ['regulation', 'policy', 'government']):
+            available_topics.append('Regulatory News')
+    
+    response = f"**🤖 AI Analysis Results:**\n\n"
+    response += f"I searched through the available articles for information related to '{question}', but couldn't find specific data to directly answer your question.\n\n"
+    
+    response += f"**📰 What I found in the articles:**\n"
+    if companies_mentioned:
+        response += f"• **Companies mentioned:** {', '.join(sorted(companies_mentioned))}\n"
+    if available_topics:
+        response += f"• **Topics covered:** {', '.join(set(available_topics))}\n"
+    
+    response += f"\n**💡 Suggested questions you could ask:**\n"
+    
+    if companies_mentioned:
+        company = list(companies_mentioned)[0]
+        response += f"• \"What news is available about {company}?\"\n"
+        response += f"• \"What are the latest developments for {company}?\"\n"
+    
+    if 'Stock Market Activity' in available_topics:
+        response += f"• \"What are the main stock market trends?\"\n"
+        response += f"• \"What companies had significant stock movements?\"\n"
+    
+    if 'Earnings & Financial Performance' in available_topics:
+        response += f"• \"What earnings reports are discussed?\"\n"
+        response += f"• \"What are the financial highlights?\"\n"
+    
+    response += f"• \"Summarize the main points from all articles\"\n"
+    response += f"• \"What are the key themes in these articles?\"\n"
+    
+    response += f"\n**🔍 Tips for better results:**\n"
+    response += f"• Use keywords that appear in the article titles or content\n"
+    response += f"• Ask about general trends rather than specific data points\n"
+    response += f"• Try rephrasing your question with different terms\n"
+    
+    return response
+
+def calculate_enhanced_confidence(relevant_info, question_analysis):
+    """Calculate confidence based on the quality and relevance of found information"""
+    
+    confidence = 0.0
+    
+    # Base confidence on amount of relevant information found
+    if relevant_info['key_sentences']:
+        confidence += min(0.4, len(relevant_info['key_sentences']) * 0.1)
+    
+    # Boost confidence for specific data points found
+    if relevant_info['specific_data']:
+        confidence += min(0.3, len(relevant_info['specific_data']) * 0.1)
+    
+    # Boost confidence for matching question intent
+    if question_analysis['type'] in ['quantitative', 'descriptive'] and relevant_info['specific_data']:
+        confidence += 0.2
+    
+    # Boost confidence for entity matches
+    if question_analysis['entities'] and relevant_info['key_sentences']:
+        confidence += 0.1
+    
+    # Boost confidence for high relevance scores
+    if relevant_info['relevance_scores']:
+        avg_relevance = sum(relevant_info['relevance_scores']) / len(relevant_info['relevance_scores'])
+        if avg_relevance > 4:
+            confidence += 0.2
+        elif avg_relevance > 2:
+            confidence += 0.1
+    
+    return min(0.95, confidence)
 
 def extract_key_information(content, question):
     """Extract relevant information from content based on question"""
@@ -1403,7 +1707,7 @@ st.sidebar.markdown("""
 
 st.sidebar.markdown("### 🔧 Troubleshooting")
 st.sidebar.markdown("""
-- **Slow loading?** Some sites block automated requests
+- **Slow e loading?** Some sites block automated requests
 - **No content?** Check if URL is accessible and contains text
 - **Empty results?** Try rephrasing your questions
 - **Need help?** Check our GitHub repository

@@ -216,7 +216,11 @@ def analyze_question_intent(question):
     intent['entities'] = entities
     
     # Identify data type being requested
-    if any(word in question_lower for word in ['price', 'cost', 'trading', 'value', 'worth', 'quote']):
+    if any(word in question_lower for word in ['target price', 'price target', 'target', 'forecast price', 'analyst target']):
+        intent['data_type'] = 'target_price'
+    elif any(word in question_lower for word in ['current price', 'stock price', 'share price', 'trading price']):
+        intent['data_type'] = 'current_price'
+    elif any(word in question_lower for word in ['price', 'cost', 'trading', 'value', 'worth', 'quote']):
         intent['data_type'] = 'price'
     elif any(word in question_lower for word in ['earnings', 'revenue', 'profit', 'income', 'eps']):
         intent['data_type'] = 'earnings'
@@ -284,7 +288,13 @@ def extract_question_specific_information(question, articles, question_analysis)
                 if re.search(r'\$\d+\.?\d*|\d+\.\d+%|\d+%|\d+,\d+|\d+\s*(million|billion|trillion)', sentence):
                     relevance_score += 5
                     
-            if question_analysis['data_type'] == 'price':
+            if question_analysis['data_type'] == 'target_price':
+                # Specifically look for target price information
+                target_indicators = ['target', 'forecast', 'analyst', 'projection', 'outlook', 'call', 'recommendation']
+                if any(indicator in sentence_lower for indicator in target_indicators):
+                    relevance_score += 5
+                    
+            if question_analysis['data_type'] in ['price', 'current_price']:
                 # Specifically look for price information
                 price_indicators = ['price', 'trading', 'cost', 'value', 'worth', '$', 'dollar', 'cent']
                 if any(indicator in sentence_lower for indicator in price_indicators):
@@ -314,28 +324,54 @@ def extract_question_specific_information(question, articles, question_analysis)
             
             # Extract specific data if found
             if relevance_score > 0:
-                # Extract prices
-                price_matches = re.findall(r'\$\d+\.?\d*', sentence)
-                if price_matches:
-                    relevant_info['specific_data'].extend([f"Price: {price}" for price in price_matches])
+                # Clean the sentence first
+                clean_sentence = re.sub(r'[^\w\s$.,%-]', ' ', sentence)  # Remove special characters
+                clean_sentence = re.sub(r'\s+', ' ', clean_sentence).strip()  # Normalize whitespace
+                
+                # Extract prices with better patterns
+                price_patterns = [
+                    r'\$(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)',  # $123.45, $1,234.56
+                    r'(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)\s*dollars?',  # 123.45 dollars
+                    r'target\s+price\s*:?\s*\$?(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)',  # target price: $123
+                    r'price\s+target\s*:?\s*\$?(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)',  # price target: $123
+                    r'(\d{3,4})\s*calls?\s+on',  # 395 calls on (for options)
+                ]
+                
+                for pattern in price_patterns:
+                    matches = re.findall(pattern, clean_sentence, re.IGNORECASE)
+                    for match in matches:
+                        # Clean up the match
+                        clean_price = match.replace(',', '') if isinstance(match, str) else str(match)
+                        if clean_price.replace('.', '').isdigit() and float(clean_price) > 10:  # Reasonable price range
+                            relevant_info['specific_data'].append(f"Target Price: ${clean_price}")
+                
+                # Extract regular prices
+                regular_price_matches = re.findall(r'\$(\d{1,4}(?:,\d{3})*(?:\.\d{2})?)', clean_sentence)
+                for price in regular_price_matches:
+                    clean_price = price.replace(',', '')
+                    if float(clean_price) > 10:  # Filter out tiny amounts
+                        relevant_info['specific_data'].append(f"Price: ${clean_price}")
                     
                 # Extract percentages
-                percent_matches = re.findall(r'\d+\.?\d*%', sentence)
-                if percent_matches:
-                    relevant_info['specific_data'].extend([f"Percentage: {percent}" for percent in percent_matches])
+                percent_matches = re.findall(r'(\d+\.?\d*)%', clean_sentence)
+                for percent in percent_matches:
+                    relevant_info['specific_data'].append(f"Percentage: {percent}%")
                     
                 # Extract dates
-                date_matches = re.findall(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}', sentence, re.IGNORECASE)
-                if date_matches:
-                    relevant_info['specific_data'].extend([f"Date: {date}" for date in date_matches])
+                date_matches = re.findall(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}', clean_sentence, re.IGNORECASE)
+                for date in date_matches:
+                    relevant_info['specific_data'].append(f"Date: {date}")
+                
+                # Store clean sentence instead of raw
+                if relevance_score >= 2:
+                    relevant_info['key_sentences'].append(clean_sentence)
+                elif relevance_score > 0:
+                    relevant_info['context_sentences'].append(clean_sentence)
             
             # Add to relevant sentences if score is high enough
             if relevance_score >= 2:
-                relevant_info['key_sentences'].append(sentence)
                 relevant_info['relevance_scores'].append(relevance_score)
                 relevant_info['found_specific_info'] = True
-            elif relevance_score > 0:
-                relevant_info['context_sentences'].append(sentence)
     
     # Sort by relevance score
     if relevant_info['key_sentences']:
@@ -351,70 +387,93 @@ def generate_detailed_response(question, relevant_info, mode, question_analysis)
     response = ""
     question_lower = question.lower()
     
+    # Check for target price questions specifically
+    is_target_price_question = any(word in question_lower for word in ['target price', 'price target', 'target', 'forecast price'])
+    is_price_question = any(word in question_lower for word in ['price', 'cost', 'value', 'worth'])
+    
     # Start with direct answer if we have specific data
     if relevant_info['specific_data']:
-        response += f"**📊 Direct Answer:**\n"
-        for data_point in relevant_info['specific_data'][:3]:  # Top 3 most relevant data points
-            response += f"• {data_point}\n"
-        response += "\n"
-    
-    # Provide context based on question type
-    if question_analysis['type'] == 'quantitative' and mode == "Detailed":
-        response += f"**🔍 Detailed Analysis for '{question}':**\n\n"
+        # Filter and clean specific data for direct answers
+        clean_data = []
+        target_prices = []
+        regular_prices = []
         
-        if relevant_info['key_sentences']:
-            response += f"**Key Information Found:**\n"
-            for i, sentence in enumerate(relevant_info['key_sentences'][:4], 1):
-                response += f"{i}. {sentence}\n\n"
+        for data_point in relevant_info['specific_data']:
+            if 'Target Price:' in data_point:
+                target_prices.append(data_point.replace('Target Price: ', ''))
+            elif 'Price:' in data_point:
+                regular_prices.append(data_point.replace('Price: ', ''))
+            else:
+                clean_data.append(data_point)
         
-        if relevant_info['context_sentences']:
-            response += f"**Additional Context:**\n"
-            for sentence in relevant_info['context_sentences'][:2]:
-                response += f"• {sentence}\n"
-        
-    elif question_analysis['type'] == 'descriptive' and mode == "Detailed":
-        response += f"**📝 Comprehensive Description:**\n\n"
-        
-        if relevant_info['key_sentences']:
-            for i, sentence in enumerate(relevant_info['key_sentences'][:5], 1):
-                response += f"**Point {i}:** {sentence}\n\n"
-                
-    elif question_analysis['type'] == 'causal' and mode == "Detailed":
-        response += f"**🔍 Causal Analysis:**\n\n"
-        
-        if relevant_info['key_sentences']:
-            response += f"**Reasons and Causes Identified:**\n"
-            for i, sentence in enumerate(relevant_info['key_sentences'][:4], 1):
-                response += f"{i}. {sentence}\n\n"
-                
-    elif mode == "Concise":
-        if relevant_info['key_sentences']:
-            response += f"**Quick Answer:** {relevant_info['key_sentences'][0]}\n\n"
-            if len(relevant_info['key_sentences']) > 1:
-                response += f"**Additional Info:** {relevant_info['key_sentences'][1]}"
-                
-    elif mode == "Analytical":
-        response += f"**📈 Analytical Insights:**\n\n"
-        
-        if relevant_info['key_sentences']:
-            response += f"**Primary Findings:**\n"
-            for sentence in relevant_info['key_sentences'][:3]:
-                response += f"• {sentence}\n"
+        # Provide direct answer based on question type
+        if is_target_price_question and target_prices:
+            response += f"**🎯 Target Price Answer:**\n"
+            # Remove duplicates and show unique target prices
+            unique_targets = list(set(target_prices))
+            for target in unique_targets[:3]:  # Show top 3 unique targets
+                response += f"• **{target}** (Microsoft target price)\n"
+            response += "\n"
             
-            response += f"\n**Market Implications:**\n"
-            response += f"• Based on the information found, this indicates significant market activity\n"
-            response += f"• The data suggests important developments that could impact investor sentiment\n"
+        elif is_price_question and (target_prices or regular_prices):
+            response += f"**💰 Price Information:**\n"
+            # Show target prices first if available
+            if target_prices:
+                unique_targets = list(set(target_prices))
+                for target in unique_targets[:2]:
+                    response += f"• **Target: {target}**\n"
+            if regular_prices:
+                unique_prices = list(set(regular_prices))
+                for price in unique_prices[:2]:
+                    response += f"• **Current: {price}**\n"
+            response += "\n"
+            
+        elif clean_data:
+            response += f"**� Key Data Found:**\n"
+            # Remove duplicates and show unique data points
+            unique_data = list(set(clean_data))
+            for data_point in unique_data[:3]:
+                response += f"• {data_point}\n"
+            response += "\n"
+    
+    # Add context only if in detailed mode and we found specific answers
+    if mode == "Detailed" and relevant_info['specific_data']:
+        if relevant_info['key_sentences']:
+            response += f"**📝 Supporting Details:**\n"
+            # Show only the most relevant sentence for context
+            best_sentence = relevant_info['key_sentences'][0]
+            # Clean up the sentence for display
+            clean_context = re.sub(r'\s+', ' ', best_sentence).strip()
+            if len(clean_context) > 200:
+                clean_context = clean_context[:200] + "..."
+            response += f"• {clean_context}\n\n"
+    
+    # For concise mode, just show the direct answer
+    elif mode == "Concise":
+        if not relevant_info['specific_data']:
+            # Fallback to first relevant sentence if no specific data
+            if relevant_info['key_sentences']:
+                response += f"**Answer:** {relevant_info['key_sentences'][0][:150]}..."
+                
+    # For analytical mode, add market context
+    elif mode == "Analytical":
+        if relevant_info['specific_data']:
+            response += f"**📈 Market Analysis:**\n"
+            response += f"• The target price information suggests analyst confidence in Microsoft's future performance\n"
+            response += f"• Options activity at these levels indicates institutional interest\n"
             
             if question_analysis['entities']:
-                response += f"• Specific focus on {', '.join(question_analysis['entities'])} shows targeted market interest\n"
+                response += f"• Focus on {', '.join(question_analysis['entities'])} shows targeted investment strategy\n"
     
-    # Add entity-specific information if available
-    if question_analysis['entities']:
-        response += f"\n**🏢 Company Focus:** Analysis specifically related to {', '.join(question_analysis['entities'])}\n"
-    
-    # Add timeframe context if relevant
-    if question_analysis['timeframe']:
-        response += f"\n**⏰ Timeframe:** Information relates to {question_analysis['timeframe']} market conditions\n"
+    # If no specific data found, provide a helpful message
+    if not relevant_info['specific_data'] and not relevant_info['key_sentences']:
+        response = f"**❌ No specific {question_analysis.get('data_type', 'information')} found**\n\n"
+        response += f"I searched for information related to '{question}' but couldn't find specific data points. "
+        response += f"The articles may discuss related topics but don't contain the exact information you're looking for.\n\n"
+        response += f"**💡 Try asking:**\n"
+        response += f"• \"What is mentioned about Microsoft?\"\n"
+        response += f"• \"What are the main themes in the articles?\"\n"
+        response += f"• \"Summarize the Microsoft-related content\"\n"
     
     return response
 

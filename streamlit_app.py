@@ -532,22 +532,6 @@ st.markdown("""
         <li>✅ Interactive dashboards</li>
         <li>✅ Multi-source aggregation</li>
     </ul>
-    
-    <p><strong>🚀 Deployment:</strong> Optimized for Streamlit Cloud with caching and performance enhancements</p>
-    <p><strong>📈 Version:</strong> 2.0 - Streamlit Cloud Edition</p>
-    
-    <div style="margin-top: 1rem;">
-        <a href="https://github.com/manikyapavan925/news_equity_research_tool" target="_blank" style="text-decoration: none;">
-            <span style="background: #007bff; color: white; padding: 0.5rem 1rem; border-radius: 5px; margin: 0.2rem;">
-                📱 GitHub Repository
-            </span>
-        </a>
-        <a href="https://github.com/manikyapavan925/news_equity_research_tool/issues" target="_blank" style="text-decoration: none;">
-            <span style="background: #28a745; color: white; padding: 0.5rem 1rem; border-radius: 5px; margin: 0.2rem;">
-                🐛 Report Issues
-            </span>
-        </a>
-    </div>
 </div>
 """, unsafe_allow_html=True)
 

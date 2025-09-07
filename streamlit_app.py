@@ -455,36 +455,75 @@ if st.session_state.articles:
     
     if question and st.button("🔍 Search Answer"):
         with st.spinner("Searching for relevant information..."):
+            # Debug info
+            st.info(f"🔍 Searching {len(st.session_state.articles)} article(s) for: '{question}'")
+            
             results = []
             question_lower = question.lower()
             question_words = set(re.findall(r'\b\w+\b', question_lower))
             
+            # Remove common stop words for better matching
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'this', 'that', 'what', 'when', 'where', 'how', 'why', 'who'}
+            question_words = question_words - stop_words
+            
+            st.write(f"🔤 Key search words: {list(question_words)}")
+            
             for i, article in enumerate(st.session_state.articles):
-                content_lower = article['content'].lower()
+                content = article.get('content', '')
+                title = article.get('title', '')
+                
+                # Show content length for debugging
+                st.write(f"📰 Article {i+1}: {len(content)} characters, Title: {title[:50]}...")
+                
+                if not content or len(content.strip()) < 50:
+                    st.warning(f"⚠️ Article {i+1} has very little content ({len(content)} chars)")
+                    continue
+                
+                content_lower = content.lower()
+                title_lower = title.lower()
                 
                 # Enhanced relevance scoring
                 if search_type == "Keyword":
                     # Exact word matching
                     content_words = set(re.findall(r'\b\w+\b', content_lower))
-                    common_words = question_words.intersection(content_words)
-                    relevance_score = len(common_words)
+                    title_words = set(re.findall(r'\b\w+\b', title_lower))
+                    
+                    common_content_words = question_words.intersection(content_words)
+                    common_title_words = question_words.intersection(title_words)
+                    
+                    # Title matches get higher weight
+                    relevance_score = len(common_content_words) + (len(common_title_words) * 3)
+                    
+                    st.write(f"  🎯 Content matches: {list(common_content_words)}")
+                    st.write(f"  📝 Title matches: {list(common_title_words)}")
+                    st.write(f"  📊 Score: {relevance_score}")
+                    
                 else:
                     # Simple semantic matching (word proximity and context)
                     relevance_score = 0
                     for word in question_words:
                         if word in content_lower:
                             relevance_score += content_lower.count(word)
+                        if word in title_lower:
+                            relevance_score += title_lower.count(word) * 2  # Title matches weighted more
                 
+                # Lower the threshold for showing results
                 if relevance_score > 0:
                     # Find relevant sentences
-                    sentences = re.split(r'[.!?]+', article['content'])
+                    sentences = re.split(r'[.!?]+', content)
                     relevant_sentences = []
                     
                     for sentence in sentences:
                         sentence = sentence.strip()
-                        if len(sentence) > 20:  # Filter out very short sentences
+                        if len(sentence) > 15:  # Lowered from 20
                             sentence_lower = sentence.lower()
                             sentence_score = sum(1 for word in question_words if word in sentence_lower)
+                            
+                            # Also check for partial word matches
+                            for word in question_words:
+                                if word in sentence_lower:
+                                    sentence_score += 1
+                                    
                             if sentence_score > 0:
                                 relevant_sentences.append((sentence, sentence_score))
                     
@@ -494,9 +533,20 @@ if st.session_state.articles:
                     if relevant_sentences:
                         results.append({
                             'article_index': i + 1,
-                            'title': article.get('title', 'No Title'),
+                            'title': title,
                             'url': article['url'],
-                            'sentences': [s[0] for s in relevant_sentences[:3]],
+                            'sentences': [s[0] for s in relevant_sentences[:5]],  # Show more sentences
+                            'score': relevance_score,
+                            'domain': article.get('domain', 'Unknown')
+                        })
+                    else:
+                        # If no sentences found but there are matches, show a summary
+                        content_preview = content[:300] + "..." if len(content) > 300 else content
+                        results.append({
+                            'article_index': i + 1,
+                            'title': title,
+                            'url': article['url'],
+                            'sentences': [f"Content contains your search terms: {content_preview}"],
                             'score': relevance_score,
                             'domain': article.get('domain', 'Unknown')
                         })

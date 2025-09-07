@@ -347,8 +347,8 @@ if st.session_state.articles:
 st.header("💬 Smart Question Answering")
 if st.session_state.articles:
     # Check for quick question from URL params
-    query_params = st.experimental_get_query_params()
-    default_question = query_params.get("question", [""])[0]
+    query_params = st.query_params
+    default_question = query_params.get("question", "")
     
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -357,9 +357,10 @@ if st.session_state.articles:
                                 placeholder="e.g., What companies were mentioned? What are the main themes?")
     with col2:
         search_type = st.selectbox("Search Type", ["Keyword", "Semantic"], help="Keyword: exact word matching, Semantic: meaning-based")
+    
     # Clear query params if question was loaded
     if default_question:
-        st.experimental_set_query_params()
+        st.query_params.clear()
     
     if question and st.button("🔍 Search Answer"):
         with st.spinner("Searching for relevant information..."):
@@ -439,7 +440,7 @@ if st.session_state.articles:
     for i, q in enumerate(quick_questions):
         with cols[i]:
             if st.button(q, key=f"quick_q_{i}", help="Click to use this question"):
-                st.experimental_set_query_params(question=q)
+                st.query_params["question"] = q
                 st.rerun()
 else:
     st.info("👆 Please load some articles first to start asking questions!")

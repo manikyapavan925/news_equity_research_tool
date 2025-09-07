@@ -980,7 +980,28 @@ if st.session_state.articles:
     if default_question:
         st.query_params.clear()
     
-    if question and st.button("🔍 Search Answer"):
+    # Add automatic search trigger for quick questions
+    auto_search = bool(default_question)  # Auto-search if question came from quick button
+    
+    # Quick question suggestions (before search processing)
+    if not auto_search:  # Only show if not auto-searching
+        st.markdown("**💡 Quick Questions:**")
+        quick_questions = [
+            "What companies were mentioned?",
+            "What are the main financial trends?",
+            "Are there any merger or acquisition news?",
+            "What earnings reports are discussed?",
+            "Are there any regulatory changes mentioned?"
+        ]
+        
+        cols = st.columns(len(quick_questions))
+        for i, q in enumerate(quick_questions):
+            with cols[i]:
+                if st.button(q, key=f"quick_q_{i}", help="Click to use this question"):
+                    st.query_params["question"] = q
+                    st.rerun()
+    
+    if (question and st.button("🔍 Search Answer")) or auto_search:
         with st.spinner("Searching for relevant information..."):
             # Debug info
             st.info(f"🔍 Searching {len(st.session_state.articles)} article(s) for: '{question}'")
@@ -1212,23 +1233,6 @@ if st.session_state.articles:
                             st.write(f"💡 {sentence}")
             else:
                 st.warning("🤔 No relevant information found. Try rephrasing your question or using different keywords.")
-    
-    # Quick question suggestions
-    st.markdown("**💡 Quick Questions:**")
-    quick_questions = [
-        "What companies were mentioned?",
-        "What are the main financial trends?",
-        "Are there any merger or acquisition news?",
-        "What earnings reports are discussed?",
-        "Are there any regulatory changes mentioned?"
-    ]
-    
-    cols = st.columns(len(quick_questions))
-    for i, q in enumerate(quick_questions):
-        with cols[i]:
-            if st.button(q, key=f"quick_q_{i}", help="Click to use this question"):
-                st.query_params["question"] = q
-                st.rerun()
 else:
     st.info("👆 Please load some articles first to start asking questions!")
     

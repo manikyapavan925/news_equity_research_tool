@@ -1,1 +1,1 @@
-streamlit
+# Minimal requirements for API endpoint only

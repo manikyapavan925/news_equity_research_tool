@@ -1,25 +1,46 @@
+# Environment and config
 .env
 .venv/
 venv/
 test_venv/
 .git/
 .gitignore
+
+# Python cache
 *.pyc
 __pycache__/
 .pytest_cache/
+
+# Logs and temp files
 *.log
 *.tmp
 .DS_Store
+
+# Node modules
 node_modules/
+
+# Model and cache directories
 .cache/
 .transformers_cache/
 .huggingface/
 models/
 checkpoints/
+
+# Model files
 *.pkl
 *.model
 *.bin
 *.safetensors
+
+# Local directories
 .local/
 temp/
 tmp/
+
+# Exclude the main Streamlit app from Vercel deployment
+src/
+requirements.txt
+runtime.txt
+Procfile
+vercel.build.sh
+DEPLOYMENT.md

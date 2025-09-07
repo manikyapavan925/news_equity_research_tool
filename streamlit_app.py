@@ -88,6 +88,97 @@ valid_urls = [url for url in urls if is_valid_url(url)]
 if urls and len(valid_urls) != len(urls):
     st.sidebar.warning(f"⚠️ {len(urls) - len(valid_urls)} invalid URL(s) detected and will be skipped.")
 
+# Function to generate article summary
+@st.cache_data(ttl=3600)
+def generate_article_summary(article, length="Medium"):
+    """Generate a summary of the article content"""
+    content = article.get('content', '')
+    title = article.get('title', 'No Title')
+    
+    if not content or len(content.strip()) < 100:
+        return "⚠️ Article content is too short to generate a meaningful summary."
+    
+    # Split content into sentences
+    sentences = re.split(r'[.!?]+', content)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    
+    if not sentences:
+        return "⚠️ Unable to extract meaningful sentences from the article."
+    
+    # Determine summary length
+    if length == "Short":
+        target_sentences = min(3, len(sentences))
+    elif length == "Medium":
+        target_sentences = min(5, len(sentences))
+    else:  # Detailed
+        target_sentences = min(8, len(sentences))
+    
+    # Simple extractive summarization
+    # Score sentences based on:
+    # 1. Position (first and last sentences often important)
+    # 2. Length (medium length sentences preferred)
+    # 3. Keyword frequency
+    
+    # Extract important keywords from title
+    title_words = set(re.findall(r'\b\w+\b', title.lower()))
+    financial_keywords = {
+        'stock', 'market', 'price', 'earnings', 'revenue', 'profit', 'loss', 
+        'merger', 'acquisition', 'ipo', 'dividend', 'investment', 'trading',
+        'financial', 'economic', 'business', 'company', 'corporation', 'shares',
+        'nasdaq', 'nyse', 'dow', 'sp500', 'index', 'fund', 'bond', 'crypto'
+    }
+    
+    scored_sentences = []
+    for i, sentence in enumerate(sentences):
+        score = 0
+        sentence_lower = sentence.lower()
+        sentence_words = set(re.findall(r'\b\w+\b', sentence_lower))
+        
+        # Position scoring
+        if i == 0:  # First sentence
+            score += 3
+        elif i == len(sentences) - 1:  # Last sentence
+            score += 2
+        elif i < len(sentences) * 0.3:  # Early sentences
+            score += 1
+        
+        # Length scoring (prefer medium-length sentences)
+        word_count = len(sentence.split())
+        if 10 <= word_count <= 30:
+            score += 2
+        elif 5 <= word_count <= 50:
+            score += 1
+        
+        # Keyword scoring
+        title_matches = len(title_words.intersection(sentence_words))
+        financial_matches = len(financial_keywords.intersection(sentence_words))
+        score += title_matches * 2 + financial_matches
+        
+        # Avoid very short or very long sentences
+        if word_count < 5 or word_count > 60:
+            score -= 2
+            
+        scored_sentences.append((sentence, score, i))
+    
+    # Sort by score and select top sentences
+    scored_sentences.sort(key=lambda x: x[1], reverse=True)
+    selected_sentences = scored_sentences[:target_sentences]
+    
+    # Sort selected sentences by original order
+    selected_sentences.sort(key=lambda x: x[2])
+    
+    # Create summary
+    summary_sentences = [s[0] for s in selected_sentences]
+    summary = '. '.join(summary_sentences)
+    
+    # Add some basic cleanup
+    summary = re.sub(r'\s+', ' ', summary).strip()
+    
+    if not summary:
+        summary = sentences[0] if sentences else "Unable to generate summary."
+    
+    return summary
+
 # Enhanced article extraction function
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def extract_article_content(url):
@@ -364,15 +455,9 @@ if st.session_state.articles:
     
     if question and st.button("🔍 Search Answer"):
         with st.spinner("Searching for relevant information..."):
-            # Debug: Show what we're searching in
-            st.info(f"🔍 Searching {len(st.session_state.articles)} articles for: '{question}'")
-            
             results = []
             question_lower = question.lower()
             question_words = set(re.findall(r'\b\w+\b', question_lower))
-            
-            # Debug: Show search words
-            st.write(f"🔤 Search words: {list(question_words)}")
             
             for i, article in enumerate(st.session_state.articles):
                 content_lower = article['content'].lower()
@@ -383,12 +468,6 @@ if st.session_state.articles:
                     content_words = set(re.findall(r'\b\w+\b', content_lower))
                     common_words = question_words.intersection(content_words)
                     relevance_score = len(common_words)
-                    
-                    # Debug: Show matching for first article
-                    if i == 0:
-                        st.write(f"📰 Article 1 preview: {article['content'][:200]}...")
-                        st.write(f"🎯 Common words found: {list(common_words)}")
-                        st.write(f"📊 Relevance score: {relevance_score}")
                 else:
                     # Simple semantic matching (word proximity and context)
                     relevance_score = 0
@@ -466,6 +545,61 @@ else:
     ]
     for url in sample_urls:
         st.code(url)
+
+# Article Summarization Section
+if st.session_state.articles:
+    st.header("📄 Article Summarization")
+    
+    # Select article to summarize
+    article_options = [f"Article {i+1}: {article.get('title', 'No Title')[:60]}..." 
+                      for i, article in enumerate(st.session_state.articles)]
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_article_idx = st.selectbox(
+            "Select an article to summarize:",
+            range(len(st.session_state.articles)),
+            format_func=lambda x: article_options[x]
+        )
+    with col2:
+        summary_length = st.selectbox("Summary Length", ["Short", "Medium", "Detailed"])
+    
+    if st.button("📝 Generate Summary", key="summarize_btn"):
+        selected_article = st.session_state.articles[selected_article_idx]
+        
+        with st.spinner("Generating summary..."):
+            summary = generate_article_summary(selected_article, summary_length)
+            
+            st.subheader(f"📄 Summary: {selected_article.get('title', 'No Title')}")
+            
+            # Article metadata
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📅 Processed", selected_article.get('processed_at', 'Unknown'))
+            with col2:
+                sentiment = selected_article.get('sentiment', {})
+                sentiment_label = "Positive" if sentiment.get('positive_ratio', 0) > sentiment.get('negative_ratio', 0) else "Negative"
+                st.metric("😊 Sentiment", sentiment_label, f"{sentiment.get('positive_ratio', 0):.1%}")
+            with col3:
+                word_count = len(selected_article.get('content', '').split())
+                st.metric("📝 Word Count", f"{word_count:,}")
+            
+            # Display summary
+            st.markdown("### 🎯 Key Summary")
+            st.info(summary)
+            
+            # Original article link
+            st.markdown(f"**🔗 Original Article:** [{selected_article.get('domain', 'Source')}]({selected_article['url']})")
+            
+            # Download summary option
+            summary_text = f"ARTICLE SUMMARY\n\nTitle: {selected_article.get('title', 'No Title')}\nSource: {selected_article['url']}\nProcessed: {selected_article.get('processed_at', 'Unknown')}\n\nSUMMARY:\n{summary}\n\nGenerated by News Research Assistant"
+            
+            st.download_button(
+                label="💾 Download Summary",
+                data=summary_text,
+                file_name=f"summary_{selected_article_idx+1}_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
+            )
 
 # Quick analysis and export features
 st.header("🚀 Quick Analysis Tools")

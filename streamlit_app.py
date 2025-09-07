@@ -364,9 +364,15 @@ if st.session_state.articles:
     
     if question and st.button("🔍 Search Answer"):
         with st.spinner("Searching for relevant information..."):
+            # Debug: Show what we're searching in
+            st.info(f"🔍 Searching {len(st.session_state.articles)} articles for: '{question}'")
+            
             results = []
             question_lower = question.lower()
             question_words = set(re.findall(r'\b\w+\b', question_lower))
+            
+            # Debug: Show search words
+            st.write(f"🔤 Search words: {list(question_words)}")
             
             for i, article in enumerate(st.session_state.articles):
                 content_lower = article['content'].lower()
@@ -377,6 +383,12 @@ if st.session_state.articles:
                     content_words = set(re.findall(r'\b\w+\b', content_lower))
                     common_words = question_words.intersection(content_words)
                     relevance_score = len(common_words)
+                    
+                    # Debug: Show matching for first article
+                    if i == 0:
+                        st.write(f"📰 Article 1 preview: {article['content'][:200]}...")
+                        st.write(f"🎯 Common words found: {list(common_words)}")
+                        st.write(f"📊 Relevance score: {relevance_score}")
                 else:
                     # Simple semantic matching (word proximity and context)
                     relevance_score = 0

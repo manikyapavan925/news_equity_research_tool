@@ -2037,21 +2037,56 @@ if st.session_state.articles:
     # Add automatic search trigger for quick questions
     auto_search = bool(default_question)  # Auto-search if question came from quick button
     
-    # Quick question suggestions (before search processing)
-    if not auto_search:  # Only show if not auto-searching
-        st.markdown("**💡 Quick Questions:**")
-        quick_questions = [
-            "What companies were mentioned?",
-            "What are the main financial trends?",
-            "Are there any merger or acquisition news?",
-            "What earnings reports are discussed?",
-            "Are there any regulatory changes mentioned?"
-        ]
+    # Smart AI-Generated Questions based on article content
+    if not auto_search and st.session_state.articles:
+        st.markdown("**🧠 Smart Questions (AI-Generated):**")
         
-        cols = st.columns(len(quick_questions))
-        for i, q in enumerate(quick_questions):
+        # Generate intelligent questions based on actual article content
+        sample_article = st.session_state.articles[0]
+        article_content = sample_article.get('content', '').lower()
+        article_title = sample_article.get('title', '')
+        
+        smart_questions = []
+        
+        # AI/Technology related questions
+        if any(word in article_content for word in ['ai', 'artificial intelligence', 'technology', 'innovation']):
+            smart_questions.append("What are the AI and technology developments mentioned?")
+        
+        # Financial performance questions
+        if any(word in article_content for word in ['revenue', 'profit', 'earnings', 'financial']):
+            smart_questions.append("What are the key financial highlights?")
+        
+        # Market/Stock performance questions
+        if any(word in article_content for word in ['stock', 'share', 'market', 'price']):
+            smart_questions.append("How is the stock/market performance?")
+        
+        # Strategic/Business questions
+        if any(word in article_content for word in ['strategy', 'plan', 'initiative', 'expansion']):
+            smart_questions.append("What business strategies are discussed?")
+        
+        # Future outlook questions
+        if any(word in article_content for word in ['outlook', 'forecast', 'future', 'guidance', '2024', '2025', '2026']):
+            smart_questions.append("What is the future outlook and predictions?")
+        
+        # Competition/Industry questions
+        if any(word in article_content for word in ['competitor', 'industry', 'market share']):
+            smart_questions.append("What competitive dynamics are mentioned?")
+        
+        # Default questions if nothing specific found
+        if not smart_questions:
+            smart_questions = [
+                f"What are the main points about {article_title.split()[0] if article_title else 'this company'}?",
+                "What are the key takeaways from this article?",
+                "What factors are affecting the business?"
+            ]
+        
+        # Limit to 3-4 questions to avoid clutter
+        smart_questions = smart_questions[:4]
+        
+        cols = st.columns(len(smart_questions))
+        for i, q in enumerate(smart_questions):
             with cols[i]:
-                if st.button(q, key=f"quick_q_{i}", help="Click to use this question"):
+                if st.button(q, key=f"smart_q_{i}", help="AI-generated question based on article content"):
                     st.query_params["question"] = q
                     st.rerun()
     

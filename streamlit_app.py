@@ -182,10 +182,14 @@ def analyze_question_intent(question):
     intent['entities'] = entities
     
     # Identify data type being requested
-    if any(word in question_lower for word in ['target price', 'price target', 'target', 'forecast price', 'analyst target']):
+    if any(word in question_lower for word in ['future predictions', 'future outlook', 'predictions', 'forecast', 'outlook', 'future', 'will be', 'expected', 'anticipated']):
+        intent['data_type'] = 'future_predictions'
+    elif any(word in question_lower for word in ['target price', 'price target', 'target', 'analyst target']):
         intent['data_type'] = 'target_price'
     elif any(word in question_lower for word in ['current price', 'stock price', 'share price', 'trading price']):
         intent['data_type'] = 'current_price'
+    elif any(word in question_lower for word in ['detailed analysis', 'analysis', 'breakdown', 'deep dive', 'comprehensive']):
+        intent['data_type'] = 'detailed_analysis'
     elif any(word in question_lower for word in ['price', 'cost', 'trading', 'value', 'worth', 'quote']):
         intent['data_type'] = 'price'
     elif any(word in question_lower for word in ['earnings', 'revenue', 'profit', 'income', 'eps']):
@@ -253,10 +257,23 @@ def extract_question_specific_information(question, articles, question_analysis)
                 # Look for numbers, prices, percentages
                 if re.search(r'\$\d+\.?\d*|\d+\.\d+%|\d+%|\d+,\d+|\d+\s*(million|billion|trillion)', sentence):
                     relevance_score += 5
+            
+            # Enhanced scoring for specific data types
+            if question_analysis['data_type'] == 'future_predictions':
+                # Look for future-oriented language and predictions
+                future_indicators = ['will', 'expect', 'forecast', 'predict', 'outlook', 'future', 'next year', 'coming years', 'anticipated', 'projected', 'estimated', 'likely', 'potential', 'could reach', 'may achieve']
+                if any(indicator in sentence_lower for indicator in future_indicators):
+                    relevance_score += 6
+                    
+            if question_analysis['data_type'] == 'detailed_analysis':
+                # Look for analytical language and comprehensive insights
+                analysis_indicators = ['analysis', 'evaluation', 'assessment', 'breakdown', 'key factors', 'drivers', 'challenges', 'opportunities', 'strengths', 'weaknesses', 'competitive', 'market position']
+                if any(indicator in sentence_lower for indicator in analysis_indicators):
+                    relevance_score += 5
                     
             if question_analysis['data_type'] == 'target_price':
                 # Specifically look for target price information
-                target_indicators = ['target', 'forecast', 'analyst', 'projection', 'outlook', 'call', 'recommendation']
+                target_indicators = ['target', 'forecast', 'analyst', 'projection', 'outlook', 'call', 'recommendation', 'valuation', 'fair value']
                 if any(indicator in sentence_lower for indicator in target_indicators):
                     relevance_score += 5
                     
@@ -392,12 +409,23 @@ def extract_clean_information(question, articles):
                   'how', 'why', 'who'}
     meaningful_words = question_words - stop_words
     
+    # Enhanced keywords for financial analysis
+    financial_keywords = {
+        'predictions': ['will', 'expect', 'forecast', 'predict', 'outlook', 'future', 'next year', 'coming years', 'anticipated', 'projected', 'estimated'],
+        'analysis': ['analysis', 'evaluation', 'assessment', 'breakdown', 'key factors', 'drivers', 'challenges', 'opportunities', 'strengths', 'weaknesses'],
+        'targets': ['target', 'fair value', 'valuation', 'recommendation', 'rating', 'upgrade', 'downgrade'],
+        'performance': ['growth', 'revenue', 'earnings', 'profit', 'margin', 'performance', 'results'],
+        'market': ['market', 'sector', 'industry', 'competitive', 'position', 'share', 'leadership']
+    }
+    
     extracted_info = {
         'direct_answers': [],
         'detailed_content': [],
         'supporting_facts': [],
         'financial_data': [],
-        'key_insights': []
+        'key_insights': [],
+        'predictions': [],
+        'analysis_points': []
     }
     
     for article in articles:
@@ -416,11 +444,30 @@ def extract_clean_information(question, articles):
         
         for sentence in sentences:
             sentence = sentence.strip()
-            if len(sentence) < 20:  # Skip very short sentences
+            if len(sentence) < 25:  # Skip very short sentences
                 continue
             
             sentence_lower = sentence.lower()
             relevance_score = 0
+            
+            # Enhanced scoring for different question types
+            
+            # Future predictions questions
+            if any(word in question_lower for word in ['future', 'predictions', 'forecast', 'outlook']):
+                if any(keyword in sentence_lower for keyword in financial_keywords['predictions']):
+                    relevance_score += 6
+                    extracted_info['predictions'].append(sentence)
+            
+            # Detailed analysis questions
+            if any(word in question_lower for word in ['analysis', 'detailed', 'breakdown', 'comprehensive']):
+                if any(keyword in sentence_lower for keyword in financial_keywords['analysis']):
+                    relevance_score += 5
+                    extracted_info['analysis_points'].append(sentence)
+            
+            # Target price questions
+            if any(word in question_lower for word in ['target', 'price']):
+                if any(keyword in sentence_lower for keyword in financial_keywords['targets']):
+                    relevance_score += 5
             
             # Score based on question word matches
             for word in meaningful_words:
@@ -432,22 +479,22 @@ def extract_clean_information(question, articles):
                 relevance_score += 3
                 
             # Bonus for current/recent information
-            if any(word in sentence_lower for word in ['today', 'current', 'recent', 'latest', 'now']):
+            if any(word in sentence_lower for word in ['today', 'current', 'recent', 'latest', 'now', '2024', '2025']):
                 relevance_score += 2
                 
             # Bonus for company names
-            if any(company in sentence_lower for company in ['microsoft', 'apple', 'google', 'amazon', 'tesla']):
-                relevance_score += 2
+            if any(company in sentence_lower for company in ['microsoft', 'msft', 'apple', 'google', 'amazon', 'tesla']):
+                relevance_score += 3
             
             # Categorize information based on relevance and content type
-            if relevance_score >= 4:
-                # High relevance - likely direct answer
+            if relevance_score >= 6:
+                # Very high relevance - likely direct answer
                 extracted_info['direct_answers'].append(sentence)
+            elif relevance_score >= 4:
+                # High relevance - detailed content
+                extracted_info['detailed_content'].append(sentence)
             elif relevance_score >= 2:
                 # Medium relevance - supporting information
-                extracted_info['detailed_content'].append(sentence)
-            elif relevance_score > 0:
-                # Low relevance - background context
                 extracted_info['supporting_facts'].append(sentence)
             
             # Extract specific financial data
@@ -461,6 +508,11 @@ def extract_clean_information(question, articles):
             percentages = re.findall(r'(\d+(?:\.\d+)?)%', sentence)
             for pct in percentages:
                 extracted_info['financial_data'].append(f"{pct}%")
+            
+            # Extract key insights (sentences with strong analytical language)
+            insight_indicators = ['key factor', 'driver', 'opportunity', 'challenge', 'strength', 'weakness', 'competitive advantage', 'risk']
+            if any(indicator in sentence_lower for indicator in insight_indicators):
+                extracted_info['key_insights'].append(sentence)
     
     return extracted_info
 
@@ -470,37 +522,74 @@ def generate_comprehensive_answer(question, extracted_info, mode="Detailed"):
     response = ""
     question_lower = question.lower()
     
-    # Always start with direct answers if available
+    # Check for specific question types
+    is_future_prediction = any(word in question_lower for word in ['future', 'predictions', 'forecast', 'outlook', 'will'])
+    is_detailed_analysis = any(word in question_lower for word in ['detailed', 'analysis', 'comprehensive', 'breakdown'])
+    is_target_price = any(word in question_lower for word in ['target', 'price'])
+    
+    # Start with direct answers for future predictions
+    if is_future_prediction and extracted_info['predictions']:
+        response += f"**🔮 Future Predictions & Outlook:**\n\n"
+        
+        for i, prediction in enumerate(extracted_info['predictions'][:4], 1):
+            clean_prediction = clean_text_content(prediction)
+            response += f"{i}. {clean_prediction}\n\n"
+    
+    # Add detailed analysis points
+    if is_detailed_analysis and extracted_info['analysis_points']:
+        response += f"**📊 Detailed Analysis:**\n\n"
+        
+        for i, analysis in enumerate(extracted_info['analysis_points'][:4], 1):
+            clean_analysis = clean_text_content(analysis)
+            response += f"**Key Point {i}:** {clean_analysis}\n\n"
+    
+    # Always show direct answers if available
     if extracted_info['direct_answers']:
-        response += f"**🎯 Direct Answer:**\n\n"
+        if not response:  # Only add header if not already added
+            response += f"**🎯 Direct Answer:**\n\n"
         
         # Show top 3 most relevant direct answers
         for i, answer in enumerate(extracted_info['direct_answers'][:3], 1):
             clean_answer = clean_text_content(answer)
-            response += f"{i}. {clean_answer}\n\n"
+            if not any(clean_answer in response for _ in [response]):  # Avoid duplicates
+                response += f"{i}. {clean_answer}\n\n"
+    
+    # Add key insights for comprehensive analysis
+    if extracted_info['key_insights'] and (is_detailed_analysis or is_future_prediction):
+        response += f"**💡 Key Insights:**\n\n"
+        
+        for insight in extracted_info['key_insights'][:3]:
+            clean_insight = clean_text_content(insight)
+            response += f"• {clean_insight}\n\n"
     
     # Add financial data if found
     if extracted_info['financial_data']:
         response += f"**💰 Key Financial Data:**\n"
         unique_data = list(set(extracted_info['financial_data']))  # Remove duplicates
-        for data in unique_data[:5]:  # Show top 5 unique data points
+        for data in unique_data[:8]:  # Show more financial data points
             response += f"• {data}\n"
         response += "\n"
     
     # Add detailed content based on mode
     if mode == "Detailed" and extracted_info['detailed_content']:
-        response += f"**📊 Detailed Information:**\n\n"
+        response += f"**� Supporting Information:**\n\n"
         
-        # Show up to 4 pieces of detailed content
-        for i, detail in enumerate(extracted_info['detailed_content'][:4], 1):
+        # Show up to 5 pieces of detailed content for comprehensive analysis
+        max_content = 5 if (is_detailed_analysis or is_future_prediction) else 3
+        for i, detail in enumerate(extracted_info['detailed_content'][:max_content], 1):
             clean_detail = clean_text_content(detail)
-            if len(clean_detail) > 200:
-                clean_detail = clean_detail[:200] + "..."
+            if len(clean_detail) > 250:
+                clean_detail = clean_detail[:250] + "..."
             response += f"{i}. {clean_detail}\n\n"
     
     elif mode == "Concise":
-        # For concise mode, just show the best direct answer
-        if extracted_info['direct_answers']:
+        # For concise mode, focus on the best information
+        if extracted_info['predictions'] and is_future_prediction:
+            best_prediction = clean_text_content(extracted_info['predictions'][0])
+            if len(best_prediction) > 200:
+                best_prediction = best_prediction[:200] + "..."
+            response += f"**Summary:** {best_prediction}\n\n"
+        elif extracted_info['direct_answers']:
             best_answer = clean_text_content(extracted_info['direct_answers'][0])
             if len(best_answer) > 150:
                 best_answer = best_answer[:150] + "..."
@@ -508,40 +597,57 @@ def generate_comprehensive_answer(question, extracted_info, mode="Detailed"):
     
     elif mode == "Analytical":
         # For analytical mode, focus on insights and implications
-        if extracted_info['direct_answers'] or extracted_info['detailed_content']:
-            response += f"**📈 Analysis & Insights:**\n\n"
+        if extracted_info['direct_answers'] or extracted_info['detailed_content'] or extracted_info['predictions']:
+            response += f"**📈 Market Analysis & Implications:**\n\n"
             
-            # Combine direct answers and detailed content for analysis
-            all_content = extracted_info['direct_answers'] + extracted_info['detailed_content']
+            # Combine all relevant content for analysis
+            all_content = (extracted_info['predictions'] + 
+                          extracted_info['analysis_points'] + 
+                          extracted_info['direct_answers'] + 
+                          extracted_info['detailed_content'])
             
-            response += f"• **Key Finding:** {clean_text_content(all_content[0])}\n\n"
+            if all_content:
+                response += f"• **Primary Finding:** {clean_text_content(all_content[0])}\n\n"
+                
+                if len(all_content) > 1:
+                    response += f"• **Supporting Evidence:** {clean_text_content(all_content[1])}\n\n"
+                
+                if len(all_content) > 2:
+                    response += f"• **Additional Context:** {clean_text_content(all_content[2])}\n\n"
             
-            if len(all_content) > 1:
-                response += f"• **Supporting Evidence:** {clean_text_content(all_content[1])}\n\n"
-            
-            response += f"• **Market Implications:** This information provides insights into current market conditions and business developments.\n\n"
+            response += f"• **Investment Implications:** This analysis provides valuable insights into Microsoft's strategic position and future growth potential.\n\n"
     
     # Add supporting facts if there's space and content
-    if extracted_info['supporting_facts'] and len(response) < 1500:
+    if extracted_info['supporting_facts'] and len(response) < 2000:
         response += f"**📝 Additional Context:**\n"
         
-        # Show 2 best supporting facts
-        for fact in extracted_info['supporting_facts'][:2]:
+        # Show more supporting facts for detailed analysis questions
+        max_facts = 4 if (is_detailed_analysis or is_future_prediction) else 2
+        for fact in extracted_info['supporting_facts'][:max_facts]:
             clean_fact = clean_text_content(fact)
-            if len(clean_fact) > 150:
-                clean_fact = clean_fact[:150] + "..."
+            if len(clean_fact) > 180:
+                clean_fact = clean_fact[:180] + "..."
             response += f"• {clean_fact}\n"
+        response += "\n"
     
     # If no relevant information found, provide helpful guidance
     if not any([extracted_info['direct_answers'], extracted_info['detailed_content'], 
-                extracted_info['supporting_facts'], extracted_info['financial_data']]):
+                extracted_info['supporting_facts'], extracted_info['financial_data'],
+                extracted_info['predictions'], extracted_info['analysis_points']]):
         response = f"**❌ No Specific Information Found**\n\n"
         response += f"I searched through the available articles but couldn't find specific information to answer '{question}'.\n\n"
-        response += f"**💡 Suggestions:**\n"
-        response += f"• Try asking about topics that are mentioned in the article titles\n"
-        response += f"• Rephrase your question using different keywords\n"
-        response += f"• Ask more general questions about the content\n"
-        response += f"• Try questions like 'What are the main themes?' or 'Summarize the key points'\n"
+        
+        # Check if the article was properly loaded
+        response += f"**� Troubleshooting Tips:**\n"
+        response += f"• Make sure the Yahoo Finance article was fully loaded (check the article content in the details section)\n"
+        response += f"• Try asking more specific questions like 'What does the article say about Microsoft's future?'\n"
+        response += f"• Verify the article contains the information you're looking for\n"
+        response += f"• Try different keywords like 'Microsoft outlook', 'MSFT forecast', or 'Microsoft valuation'\n\n"
+        
+        response += f"**💡 Alternative Questions:**\n"
+        response += f"• 'What are the main themes in the Microsoft article?'\n"
+        response += f"• 'Summarize the key points about Microsoft'\n"
+        response += f"• 'What does the article say about Microsoft's performance?'\n"
     
     return response
     """Generate a detailed, question-specific response"""

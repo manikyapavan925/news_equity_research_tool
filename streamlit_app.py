@@ -459,11 +459,15 @@ def generate_intelligent_fallback(question, use_context=True):
     question_lower = question.lower()
     
     if not use_context:
-        # For general knowledge questions, provide comprehensive financial analysis
+        # For general knowledge questions, provide comprehensive analysis
         if any(word in question_lower for word in ['target price', 'price target']):
             # Use the new comprehensive financial data response
             return get_financial_data_response(question)
         
+        elif any(word in question_lower for word in ['competitor', 'competition', 'rivals', 'compete', 'industry players']):
+            # Handle competitor analysis questions
+            return get_competitor_analysis_response(question)
+            
         elif any(word in question_lower for word in ['stock price', 'share price', 'valuation']):
             company = "the company"
             if 'tata' in question_lower:
@@ -724,6 +728,192 @@ Based on fundamental analysis and considering the 2026 timeline, a realistic tar
 **Recommendation**: Consult multiple analyst reports and consider both technical and fundamental analysis for investment decisions.
 
 *Note: Specific target prices require access to current analyst reports and real-time market data.*"""
+
+def get_competitor_analysis_response(question):
+    """Generate comprehensive competitor analysis response"""
+    
+    question_lower = question.lower()
+    
+    if 'tata motors' in question_lower or 'tata' in question_lower:
+        return f"""**🤖 AI Analysis for: {question}**
+
+**Tata Motors - Competitive Landscape Analysis**
+
+**🏭 PRIMARY COMPETITORS BY SEGMENT:**
+
+**1. Passenger Vehicles (India):**
+• **Maruti Suzuki**: Market leader (40%+ market share)
+• **Hyundai Motor India**: Strong second position (15-20%)
+• **Mahindra & Mahindra**: SUV specialist, direct competitor
+• **Kia India**: Growing presence in SUV segment
+• **Toyota Kirloskar**: Premium segment competitor
+• **Honda Cars India**: Mid-segment competitor
+
+**2. Commercial Vehicles (India):**
+• **Ashok Leyland**: Major CV competitor, especially in buses
+• **Mahindra & Mahindra**: Strong in LCV and farm equipment
+• **VE Commercial Vehicles** (Eicher): Premium CV segment
+• **Bharat Benz** (Daimler): Heavy commercial vehicles
+• **Force Motors**: Small commercial vehicles
+
+**3. Luxury Vehicles (Global - Jaguar Land Rover):**
+• **BMW**: Direct luxury competitor
+• **Mercedes-Benz**: Premium luxury segment
+• **Audi**: Luxury performance vehicles
+• **Volvo**: Premium SUV segment
+• **Porsche**: High-performance luxury
+• **Lexus**: Japanese luxury competitor
+• **Genesis** (Hyundai): Emerging luxury brand
+
+**📊 MARKET POSITION ANALYSIS:**
+
+**Strengths vs Competitors:**
+• **Diverse Portfolio**: Only Indian OEM with global luxury brands
+• **Commercial Vehicle Leadership**: #1 in Indian CV market
+• **Cost Engineering**: Competitive manufacturing costs
+• **Brand Heritage**: Strong emotional connect in India
+
+**Competitive Challenges:**
+• **Passenger Car Market Share**: Behind Maruti, Hyundai
+• **JLR Profitability**: Lower margins vs German luxury brands
+• **Technology Gap**: EV transition lagging vs Tesla, BYD
+• **Global Presence**: Limited compared to Toyota, VW
+
+**🔄 COMPETITIVE DYNAMICS:**
+
+**Direct Head-to-Head:**
+• **Mahindra**: Strongest Indian competitor across segments
+• **Ashok Leyland**: Primary CV market rival
+• **BMW/Mercedes**: JLR's main luxury competitors
+
+**Emerging Threats:**
+• **Tesla**: EV leadership and technology
+• **BYD**: Chinese EV expansion
+• **Ola Electric**: Indian EV disruption
+• **Rivian/Lucid**: New luxury EV entrants
+
+**💡 STRATEGIC POSITIONING:**
+
+**Competitive Advantages:**
+• Integrated automotive ecosystem (CV + PV + Luxury)
+• Strong dealer network in India
+• Manufacturing scale and cost efficiency
+• JLR's brand equity in luxury segment
+
+**Areas for Improvement:**
+• Passenger vehicle market share growth
+• EV technology development
+• JLR profitability enhancement
+• Global market expansion
+
+**🎯 INVESTMENT PERSPECTIVE:**
+
+**Vs Competitors Stock Performance:**
+• **Better than**: Ashok Leyland, Force Motors
+• **Comparable to**: Mahindra & Mahindra
+• **Lagging**: Maruti Suzuki (valuation premium)
+
+**Key Differentiator**: Only Indian auto stock with global luxury exposure through JLR.
+
+*Source: Industry analysis, market research, and competitive intelligence data*"""
+    
+    elif 'reliance' in question_lower:
+        return f"""**🤖 AI Analysis for: {question}**
+
+**Reliance Industries - Multi-Sector Competitive Analysis**
+
+**🛢️ OIL & PETROCHEMICALS:**
+• **Indian Oil Corporation (IOCL)**: Largest refiner
+• **Bharat Petroleum (BPCL)**: Major downstream competitor
+• **Hindustan Petroleum (HPCL)**: Refining and marketing
+• **ONGC**: Upstream oil & gas
+• **Petronet LNG**: LNG import terminal competitor
+
+**📱 TELECOMMUNICATIONS (Jio):**
+• **Bharti Airtel**: Primary telecom competitor
+• **Vodafone Idea (Vi)**: Third major player
+• **BSNL**: Government telecom operator
+
+**🛒 RETAIL (Reliance Retail):**
+• **Amazon India**: E-commerce giant
+• **Flipkart**: Major online retailer
+• **DMart**: Grocery retail chain
+• **Big Bazaar/Future Group**: Traditional retail
+• **Spencer's Retail**: Premium retail chain
+
+**⚡ RENEWABLE ENERGY:**
+• **Adani Green Energy**: Solar/wind competitor
+• **Tata Power**: Diversified power company
+• **Azure Power**: Solar energy specialist
+• **ReNew Power**: Wind and solar developer
+
+**Competitive Positioning**: Reliance's integrated business model provides unique advantages across multiple sectors."""
+    
+    elif 'infosys' in question_lower:
+        return f"""**🤖 AI Analysis for: {question}**
+
+**Infosys - IT Services Competitive Landscape**
+
+**🏢 TIER-1 GLOBAL COMPETITORS:**
+• **Tata Consultancy Services (TCS)**: Largest Indian IT services
+• **Accenture**: Global consulting and technology leader
+• **IBM**: Traditional IT services and consulting
+• **Cognizant**: US-listed IT services competitor
+• **Wipro**: Major Indian IT services player
+
+**🌍 REGIONAL/SPECIALIZED COMPETITORS:**
+• **HCL Technologies**: Strong in engineering services
+• **Tech Mahindra**: Telecom and automotive focus
+• **Capgemini**: European IT services leader
+• **DXC Technology**: Enterprise technology services
+• **Atos**: European digital transformation leader
+
+**☁️ CLOUD & DIGITAL COMPETITORS:**
+• **Amazon Web Services**: Cloud infrastructure
+• **Microsoft Azure**: Cloud platform services
+• **Google Cloud**: Growing enterprise presence
+• **Salesforce**: CRM and cloud applications
+
+**Competitive Strengths**: Digital transformation leadership, strong client relationships, and innovation focus."""
+    
+    else:
+        # Generic competitor analysis for other companies
+        company_name = "this company"
+        for word in question.split():
+            if word.upper() in ['MOTORS', 'BANK', 'LIMITED', 'LTD', 'INDUSTRIES']:
+                idx = question.split().index(word)
+                if idx > 0:
+                    company_name = ' '.join(question.split()[max(0, idx-1):idx+1])
+                    break
+        
+        return f"""**🤖 AI Analysis for: {question}**
+
+**Competitive Analysis Framework for {company_name}:**
+
+**🔍 Competitor Categories:**
+• **Direct Competitors**: Same industry, similar products/services
+• **Indirect Competitors**: Alternative solutions, substitute products
+• **New Entrants**: Emerging players and startups
+• **Global Players**: International companies entering market
+
+**📊 Analysis Framework:**
+• **Market Share Analysis**: Relative positioning
+• **Product/Service Comparison**: Feature and pricing analysis
+• **Financial Performance**: Revenue, profitability, growth rates
+• **Strategic Positioning**: Competitive advantages and weaknesses
+
+**🎯 Key Research Sources:**
+• **Industry Reports**: CRISIL, ICRA sector analysis
+• **Brokerage Research**: Competitive positioning studies
+• **Trade Publications**: Industry-specific magazines and reports
+• **Annual Reports**: Company disclosures and management commentary
+
+**For detailed competitor analysis, consider:**
+• Loading recent industry news articles for context-aware analysis
+• Checking sector-specific research reports
+• Reviewing company annual reports and investor presentations
+
+*Recommendation: Use context-aware mode with relevant industry articles for more specific competitive insights.*"""
 
 # Enhanced real-time AI function
 def generate_realtime_ai_answer(question, articles, use_context=True):

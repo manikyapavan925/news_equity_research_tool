@@ -322,46 +322,51 @@ Stock-focused articles typically discuss market performance and financial factor
                     return enhanced_answer
                 
                 else:
-                    enhanced_answer = f"""**📋 Analysis Result for: {question}**
+                    enhanced_answer = f"""**Analysis Result for: {question}**
 
 **Current Article Content:** This article focuses on {main_topic}.
 
-**🔍 Assessment:** The article doesn't contain specific information to answer your question about '{question}'.
+**Assessment:** The article doesn't contain specific information to answer your question about '{question}'.
 
-**💡 Recommendation:** For comprehensive information about this topic, consider sources that specifically address this subject area.
+**Recommendation:** For comprehensive information about this topic, consider sources that specifically address this subject area.
 
-**📰 Current Article Summary:** {clean_context[:150]}..."""
+**Current Article Summary:** {clean_context[:150]}..."""
                     return enhanced_answer
+                
+                if 'ai_tech' in question_types or 'plans' in question_types:
+                    enhanced_answer = f"""**Analysis for: {question}**
 
-**🔍 Why this question can't be answered from this article:**
+**Current Article Focus:** This article primarily discusses {main_topic}.
+
+**Why this question can't be answered from this article:**
 The article doesn't contain information about AI strategies, technology plans, or future initiatives.
 
-**💡 Where to find this information:**
+**Where to find this information:**
 - Microsoft's investor relations website and quarterly earnings calls
 - Technology conferences like Microsoft Build or Ignite
 - Annual reports (10-K filings) and strategic announcements
 - Tech industry publications covering Microsoft's AI initiatives
 
-**🔗 Related context from article:**
+**Related context from article:**
 Based on the current article's focus on {main_topic}, you might also be interested in how market conditions affect technology investments and strategic planning."""
                 else:
-                    enhanced_answer = f"""**📋 Analysis for: {question}**
+                    enhanced_answer = f"""**Analysis for: {question}**
 
 **Current Article Content:** {main_topic}
 
-**🔍 Analysis:** The provided article doesn't contain specific information to directly answer your question about '{question}'.
+**Analysis:** The provided article doesn't contain specific information to directly answer your question about '{question}'.
 
-**💡 Recommendation:** For comprehensive information about your question, consider sources that specifically cover this topic area.
+**Recommendation:** For comprehensive information about your question, consider sources that specifically cover this topic area.
 
-**🔗 Context:** The article provides insights into {main_topic}, which may be relevant background information."""
+**Context:** The article provides insights into {main_topic}, which may be relevant background information."""
                 
                 return enhanced_answer
             
             # Check if answer indicates unavailability but enhance it
             if any(phrase in answer.lower() for phrase in ['does not contain', 'not discuss', 'does not provide', 'not mention', 'no information']):
-                return f"**📋 Expert Analysis:** {answer}"
+                return f"**Expert Analysis:** {answer}"
             
-            return f"**💡 Answer:** {answer}"
+            return f"**Answer:** {answer}"
             
         elif "distilbert" in model_name.lower() or "squad" in model_name.lower():
             # For BERT-style Q&A models

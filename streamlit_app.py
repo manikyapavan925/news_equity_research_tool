@@ -501,6 +501,57 @@ def is_inadequate_response(response_text, question):
             keyword_coverage < 0.3 or 
             (len(question.split()) > 5 and len(response_text.split()) < 20))
 
+def fetch_article_content(url, max_length=2000):
+    """Fetch and extract text content from a web article"""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            script.decompose()
+        
+        # Try to find main content areas
+        content_selectors = [
+            'article', '.article-content', '.post-content', '.entry-content',
+            '.content', '.main-content', 'main', '.article-body', '.post-body'
+        ]
+        
+        content = ""
+        for selector in content_selectors:
+            elements = soup.select(selector)
+            if elements:
+                content = elements[0].get_text()
+                break
+        
+        # If no specific content area found, get body text
+        if not content:
+            content = soup.body.get_text() if soup.body else soup.get_text()
+        
+        # Clean up the text
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        content = ' '.join(lines)
+        
+        # Limit content length
+        if len(content) > max_length:
+            content = content[:max_length] + "..."
+        
+        return content
+        
+    except Exception as e:
+        return f"Unable to fetch content from this URL: {str(e)}"
+
 def create_web_search_response(question, search_results):
     """Create a comprehensive response using web search results"""
     
@@ -541,27 +592,46 @@ def create_web_search_response(question, search_results):
     
     response = f"""**🌐 Web Search Results for: {question}**
 
-**📊 Current Information Summary:**
+**📊 Analysis of Current Information:**
 
-Based on web search analysis, here are the key findings:
+Based on web search analysis with article content extraction:
 
 """
     
-    for i, result in enumerate(search_results, 1):
+    # For each search result, try to fetch and analyze the actual content
+    for i, result in enumerate(search_results[:3], 1):  # Limit to 3 articles to avoid too long responses
         title = result.get('title', 'No title')
         snippet = result.get('snippet', 'No description available')
         url = result.get('url', '#')
         source = result.get('source', 'Unknown')
         
-        response += f"""**{i}. {title}**
+        response += f"""**{i}. Analysis from: {title}**
 
-**📝 Key Details:**
+"""
+        
+        # Try to fetch actual article content if it's a real URL
+        if url.startswith('http') and 'demo' not in source.lower() and 'fallback' not in source.lower():
+            article_content = fetch_article_content(url)
+            if article_content and "Unable to fetch" not in article_content and len(article_content) > 100:
+                response += f"""**📄 Key Information Extracted from Article:**
+{article_content}
+
+"""
+            else:
+                response += f"""**📝 Available Summary:**
 • {snippet}
 
-**🔗 Source Information:**
-• URL: {url}
-• Via: {source}
-• Relevance: High (matches your query keywords)
+**ℹ️ Note:** Full article content could not be extracted. Summary provided above.
+
+"""
+        else:
+            # For demo data, use the enhanced snippet
+            response += f"""**📝 Key Information:**
+• {snippet}
+
+"""
+        
+        response += f"""**🔗 Source:** {url}
 
 ---
 
@@ -584,23 +654,31 @@ Some results include intelligent fallback data to demonstrate functionality when
 
 """
     
-    response += """**🎯 Key Takeaways:**
-• The search found specific, current information addressing your question
-• Multiple sources provide verification and credibility
+    response += f"""**🎯 Key Takeaways:**
+• The search extracted specific, current information from {len(search_results)} relevant sources
+• Article content has been analyzed and summarized for your question
 • Source links allow you to access complete details and verify information
 
 **💡 For More Detailed Information:**
-• Click the source links above for complete articles and specifications
-• Try related searches with more specific keywords for additional details
-• Check multiple sources to get a comprehensive understanding
-• Look for official company announcements for the most accurate data
-
-**🔄 Next Steps:**
-• Visit source links for complete technical specifications and pricing
-• Search for user reviews and expert analysis of mentioned products
+• Click the source links above for complete articles and full context
+• Cross-reference with multiple reliable sources for verification
 • Check for latest updates and announcements from official channels
 
-*This web search provides current information as of the search time. Information accuracy may vary, so always verify with official sources.*"""
+**⚠️ Important Disclaimer:**
+• Information extracted from web sources may not be complete or fully up-to-date
+• Article content is summarized and may not reflect the full context of original sources
+• Always verify important information with official company sources and financial advisors
+• This tool provides research assistance only and should not be considered as financial advice
+• Investment decisions should be made after consulting with qualified financial professionals
+• The accuracy and completeness of extracted content cannot be guaranteed
+
+**🔄 Recommended Next Steps:**
+• Visit the original source links for complete information and context
+• Consult multiple reliable financial news sources for comprehensive analysis
+• Check official company websites and regulatory filings for verified data
+• Seek professional financial advice before making investment decisions
+
+*This web search analysis is for informational purposes only. Always verify information with official sources and consult professionals for financial decisions.*"""
     
     return response
 
@@ -3509,18 +3587,20 @@ if st.session_state.articles:
             # Sort results by relevance
             results.sort(key=lambda x: x['score'], reverse=True)
             
-            if results:
-                st.success(f"🎯 Found {len(results)} relevant source(s)")
-                
-                for idx, result in enumerate(results[:5]):  # Show top 5 results
-                    with st.expander(f"📄 {result['title'][:60]}... (Relevance: {result['score']})"):
-                        st.write(f"**🔗 Source:** {result['url']}")
-                        st.write(f"**🌐 Domain:** {result['domain']}")
-                        st.write(f"**🎯 Relevant excerpts:**")
-                        for sentence in result['sentences']:
-                            st.write(f"💡 {sentence}")
-            else:
-                st.warning("🤔 No relevant information found. Try rephrasing your question or using different keywords.")
+            # Only show results summary for Keyword and Semantic searches, not AI-Powered
+            if search_type in ["Keyword", "Semantic"]:
+                if results:
+                    st.success(f"🎯 Found {len(results)} relevant source(s)")
+                    
+                    for idx, result in enumerate(results[:5]):  # Show top 5 results
+                        with st.expander(f"📄 {result['title'][:60]}... (Relevance: {result['score']})"):
+                            st.write(f"**🔗 Source:** {result['url']}")
+                            st.write(f"**🌐 Domain:** {result['domain']}")
+                            st.write(f"**🎯 Relevant excerpts:**")
+                            for sentence in result['sentences']:
+                                st.write(f"💡 {sentence}")
+                else:
+                    st.warning("🤔 No relevant information found. Try rephrasing your question or using different keywords.")
 else:
     st.info("👆 Please load some articles first to start asking questions!")
     

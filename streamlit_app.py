@@ -6,6 +6,7 @@ import os
 import pandas as pd
 from urllib.parse import urlparse
 import time
+import random
 
 # Streamlit page configuration - optimized for deployment
 st.set_page_config(
@@ -465,6 +466,14 @@ def generate_realtime_ai_answer(question, articles, use_context=True):
         return "⚠️ AI model not available. Please try again later."
     
     try:
+        # Add randomness for variety in responses
+        current_time = int(time.time())
+        random_seed = (current_time % 1000) + random.randint(1, 100)
+        
+        # Vary temperature and other parameters for different responses
+        temperature_options = [0.4, 0.5, 0.6, 0.7]
+        temperature = random.choice(temperature_options)
+        
         if use_context:
             # Use article content as context
             combined_content = ""
@@ -475,48 +484,104 @@ def generate_realtime_ai_answer(question, articles, use_context=True):
                     clean_content = clean_text_content(content)
                     combined_content += f"\n\n=== {title} ===\n{clean_content[:1000]}"
             
-            # Create context-aware prompt for better results
-            prompt = f"""Answer this question comprehensively. Use the article content when relevant, but also provide additional insights from your knowledge.
+            # Create varied context-aware prompts for different responses
+            prompt_variations = [
+                f"""Answer this question comprehensively using the article content and your knowledge:
 
 Question: {question}
 
-Article content for context:
+Article Content:
 {combined_content[:2000]}
 
-Instructions:
-1. If the articles contain relevant information, use it
-2. Supplement with your knowledge to provide a complete answer
-3. Be specific and detailed
-4. If the articles don't cover the topic, still provide a helpful response using your knowledge
+Provide a detailed, insightful analysis:""",
 
-Comprehensive answer:"""
+                f"""Based on the articles provided and your expertise, please answer:
+
+{question}
+
+Source Material:
+{combined_content[:2000]}
+
+Give a thorough professional response:""",
+
+                f"""Analyze this question using both the article information and your knowledge:
+
+Query: {question}
+
+Reference Material:
+{combined_content[:2000]}
+
+Comprehensive answer with insights:""",
+
+                f"""Please provide an expert analysis for:
+
+{question}
+
+Context from articles:
+{combined_content[:2000]}
+
+Detailed response:"""
+            ]
+            
+            prompt = random.choice(prompt_variations)
         
         else:
-            # General knowledge mode
-            prompt = f"""Provide a comprehensive, knowledgeable answer to this question:
+            # General knowledge mode with varied prompts
+            prompt_variations = [
+                f"""Provide a comprehensive analysis of this question:
 
-Question: {question}
+{question}
 
-Please give a detailed, professional analysis based on your knowledge of business, technology, and finance.
+Give a detailed, professional response based on your knowledge:""",
 
-Answer:"""
+                f"""Please analyze and answer:
+
+{question}
+
+Provide expert insights and detailed explanation:""",
+
+                f"""Based on your knowledge, please address:
+
+{question}
+
+Give a thorough, well-informed response:""",
+
+                f"""Expert analysis needed for:
+
+{question}
+
+Please provide comprehensive insights:"""
+            ]
+            
+            prompt = random.choice(prompt_variations)
         
-        # Generate response with better parameters
+        # Generate response with varied parameters for more diversity
         response = model_pipeline(
             prompt, 
-            max_length=600, 
+            max_length=random.randint(500, 700), 
             num_return_sequences=1, 
             do_sample=True, 
-            temperature=0.3,
-            repetition_penalty=1.3,
-            no_repeat_ngram_size=3
+            temperature=temperature,
+            repetition_penalty=random.uniform(1.2, 1.4),
+            no_repeat_ngram_size=random.randint(2, 4),
+            top_p=random.uniform(0.85, 0.95),
+            top_k=random.randint(40, 60)
         )
         
         answer = response[0]['generated_text'].strip()
         
+        # Clean the answer to remove the prompt part
+        if prompt in answer:
+            answer = answer.replace(prompt, "").strip()
+        
+        # Remove any leading colons or prompt remnants
+        answer = re.sub(r'^[:\-\s]*', '', answer)
+        
         # Check for quality and return appropriate response
         if len(answer) > 50 and not is_repetitive_response(answer):
-            return f"**🤖 AI Analysis:**\n\n{answer}\n\n**Model:** {model_name}\n**Mode:** {'Context-aware' if use_context else 'General knowledge'}"
+            context_type = "Context-aware" if use_context else "General knowledge"
+            response_id = f"#{random_seed}"
+            return f"**🤖 AI Analysis {response_id}:**\n\n{answer}\n\n**Model:** {model_name} | **Mode:** {context_type} | **T:** {temperature:.1f}"
         else:
             return f"**🤖 AI Analysis for: {question}**\n\nI'm having difficulty generating a complete response. Try rephrasing your question or use the Semantic search mode as an alternative."
             
@@ -2107,6 +2172,13 @@ if st.session_state.articles:
     # Add automatic search trigger for quick questions
     auto_search = bool(default_question)  # Auto-search if question came from quick button
     
+    # Initialize randomization seed for this session if not exists
+    if 'question_randomizer' not in st.session_state:
+        st.session_state.question_randomizer = random.randint(1, 1000)
+    
+    # Use session-based random seed for consistent but varied questions
+    random.seed(st.session_state.question_randomizer + int(time.time() // 300))  # Changes every 5 minutes
+    
     # Smart AI-Generated Questions based on article content
     if st.session_state.articles:
         st.markdown("**🧠 Smart Questions (AI-Generated):**")
@@ -2118,47 +2190,109 @@ if st.session_state.articles:
         
         smart_questions = []
         
-        # AI/Technology related questions
+        # AI/Technology related questions with variations
         if any(word in article_content for word in ['ai', 'artificial intelligence', 'technology', 'innovation']):
-            smart_questions.append("What are the AI and technology developments mentioned?")
-        
-        # Financial performance questions
-        if any(word in article_content for word in ['revenue', 'profit', 'earnings', 'financial']):
-            smart_questions.append("What are the key financial highlights?")
-        
-        # Market/Stock performance questions
-        if any(word in article_content for word in ['stock', 'share', 'market', 'price']):
-            smart_questions.append("How is the stock/market performance?")
-        
-        # Strategic/Business questions
-        if any(word in article_content for word in ['strategy', 'plan', 'initiative', 'expansion']):
-            smart_questions.append("What business strategies are discussed?")
-        
-        # Future outlook questions
-        if any(word in article_content for word in ['outlook', 'forecast', 'future', 'guidance', '2024', '2025', '2026']):
-            smart_questions.append("What is the future outlook and predictions?")
-        
-        # Competition/Industry questions
-        if any(word in article_content for word in ['competitor', 'industry', 'market share']):
-            smart_questions.append("What competitive dynamics are mentioned?")
-        
-        # Default questions if nothing specific found
-        if not smart_questions:
-            smart_questions = [
-                f"What are the main points about {article_title.split()[0] if article_title else 'this company'}?",
-                "What are the key takeaways from this article?",
-                "What factors are affecting the business?"
+            tech_questions = [
+                "What are the AI and technology developments mentioned?",
+                "How is technology being implemented or discussed?",
+                "What innovation strategies are being pursued?",
+                "What technological advantages are highlighted?"
             ]
+            smart_questions.append(random.choice(tech_questions))
         
-        # Limit to 3-4 questions to avoid clutter
-        smart_questions = smart_questions[:4]
+        # Financial performance questions with variations
+        if any(word in article_content for word in ['revenue', 'profit', 'earnings', 'financial']):
+            financial_questions = [
+                "What are the key financial highlights?",
+                "How is the company performing financially?",
+                "What are the revenue and profit trends?",
+                "What financial metrics are most important here?"
+            ]
+            smart_questions.append(random.choice(financial_questions))
         
-        cols = st.columns(len(smart_questions))
-        for i, q in enumerate(smart_questions):
-            with cols[i]:
-                if st.button(q, key=f"smart_q_{i}", help="AI-generated question based on article content"):
-                    st.query_params["question"] = q
-                    st.rerun()
+        # Market/Stock performance questions with variations
+        if any(word in article_content for word in ['stock', 'share', 'market', 'price']):
+            market_questions = [
+                "How is the stock/market performance?",
+                "What factors are affecting the stock price?",
+                "What market trends are discussed?",
+                "How is investor sentiment reflected?"
+            ]
+            smart_questions.append(random.choice(market_questions))
+        
+        # Strategic/Business questions with variations
+        if any(word in article_content for word in ['strategy', 'plan', 'initiative', 'expansion']):
+            strategy_questions = [
+                "What business strategies are discussed?",
+                "What are the key strategic initiatives?",
+                "How is the company planning to grow?",
+                "What strategic changes are being made?"
+            ]
+            smart_questions.append(random.choice(strategy_questions))
+        
+        # Future outlook questions with variations
+        if any(word in article_content for word in ['outlook', 'forecast', 'future', 'guidance', '2024', '2025', '2026']):
+            future_questions = [
+                "What is the future outlook and predictions?",
+                "What are the growth expectations?",
+                "How does management view the future?",
+                "What guidance has been provided?"
+            ]
+            smart_questions.append(random.choice(future_questions))
+        
+        # Competition/Industry questions with variations
+        if any(word in article_content for word in ['competitor', 'industry', 'market share']):
+            competition_questions = [
+                "What competitive dynamics are mentioned?",
+                "How does this compare to competitors?",
+                "What industry trends are highlighted?",
+                "What is the competitive advantage discussed?"
+            ]
+            smart_questions.append(random.choice(competition_questions))
+        
+        # Risk/Challenge questions with variations
+        if any(word in article_content for word in ['risk', 'challenge', 'concern', 'issue']):
+            risk_questions = [
+                "What risks or challenges are discussed?",
+                "What concerns are being addressed?",
+                "What obstacles does the company face?",
+                "How are potential risks being managed?"
+            ]
+            smart_questions.append(random.choice(risk_questions))
+        
+        # Default questions if nothing specific found - also randomized
+        if not smart_questions:
+            company_name = article_title.split()[0] if article_title else 'this company'
+            default_questions = [
+                f"What are the main points about {company_name}?",
+                "What are the key takeaways from this article?",
+                "What factors are affecting the business?",
+                "What is the most important information here?",
+                "What should investors know about this?",
+                "What are the critical insights from this news?"
+            ]
+            smart_questions = random.sample(default_questions, min(3, len(default_questions)))
+        
+        # Randomize order and limit to 3-4 questions to avoid clutter
+        if len(smart_questions) > 4:
+            smart_questions = random.sample(smart_questions, 4)
+        else:
+            random.shuffle(smart_questions)
+        
+        # Display questions with refresh button
+        question_col, refresh_col = st.columns([6, 1])
+        with refresh_col:
+            if st.button("🔄", help="Refresh questions for different suggestions"):
+                st.session_state.question_randomizer = random.randint(1, 1000)
+                st.rerun()
+        
+        with question_col:
+            cols = st.columns(len(smart_questions))
+            for i, q in enumerate(smart_questions):
+                with cols[i]:
+                    if st.button(q, key=f"smart_q_{i}", help="AI-generated question based on article content"):
+                        st.query_params["question"] = q
+                        st.rerun()
     
     if (question and st.button("🔍 Search Answer")) or auto_search:
         with st.spinner("Searching for relevant information..."):

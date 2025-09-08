@@ -195,24 +195,35 @@ def create_smart_prompt(question, context, question_types):
     # Check for keyword overlap
     keyword_overlap = len(meaningful_q_words.intersection(context_words)) / max(len(meaningful_q_words), 1)
     
-    # Create simpler, more direct prompts to avoid repetition
+    # For AI/tech questions with low relevance, provide structured response
     if 'ai_tech' in question_types or 'plans' in question_types:
-        if keyword_overlap < 0.2:  # Low relevance
-            return f"Question: {question}\n\nArticle content: {context}\n\nAnalysis: This article does not contain information about AI strategies or technology plans. The article focuses on different topics. To find information about Microsoft's AI strategies for 2026, you would need to check Microsoft's official announcements, investor presentations, or technology conference talks.\n\nAnswer:"
+        if keyword_overlap < 0.3:  # Low relevance
+            return f"""Analyze this article and answer the user's question. Be specific about what information is available.
+
+User Question: {question}
+
+Article Content: {context}
+
+Instructions: If the article doesn't discuss AI strategies, technology plans, or future initiatives, start your answer with "This article does not contain information about [the topic]" and then explain what the article actually discusses.
+
+Answer:"""
         else:
-            return f"Question: {question}\n\nArticle content: {context}\n\nBased on the article, provide a clear and concise answer:"
+            return f"Based on this technology article, answer: {question}\n\nArticle: {context}\n\nDetailed answer:"
     
     elif 'financial' in question_types:
-        if 'price' in question.lower() and 'target' not in context.lower() and '$' not in context:
-            return f"Question: {question}\n\nArticle content: {context}\n\nAnalysis: This article does not provide specific price targets or financial projections. For price targets, check financial analysts' reports or investment research.\n\nAnswer:"
-        else:
-            return f"Question: {question}\n\nArticle content: {context}\n\nProvide a clear financial analysis based on the article:"
+        return f"Analyze this financial article and answer: {question}\n\nArticle: {context}\n\nFinancial analysis:"
     
-    elif keyword_overlap > 0.3:  # Good relevance
-        return f"Question: {question}\n\nArticle content: {context}\n\nAnswer:"
+    elif keyword_overlap > 0.4:  # Good relevance
+        return f"Answer this question based on the article: {question}\n\nArticle: {context}\n\nAnswer:"
     
-    else:  # Low relevance - be direct
-        return f"Question: {question}\n\nArticle content: {context}\n\nThis article does not contain information directly relevant to your question. The article discusses other topics.\n\nAnswer:"
+    else:  # Low relevance
+        return f"""Answer this question based on the article. If the information isn't available, explain what the article actually covers.
+
+Question: {question}
+
+Article: {context}
+
+Response:"""
 
 def generate_llm_response(question, context, model_pipeline, model_name):
     """Generate response using the loaded LLM with intelligent prompting"""
@@ -269,14 +280,58 @@ def generate_llm_response(question, context, model_pipeline, model_name):
                 
                 return clean_answer
             
-            # Enhanced post-processing for better responses
-            if len(answer) < 20 or answer.lower() in ['data', 'jobs data', 'stock', 'microsoft', 'ai', 'not available']:
-                # Fallback to a more detailed analysis
+            # Enhanced checks for poor responses
+            if (len(answer) < 30 or 
+                answer.lower() in ['data', 'jobs data', 'stock', 'microsoft', 'ai', 'not available', 'tariff concerns', 'weak', 'decline'] or
+                answer.strip() == clean_context.strip()[:len(answer)] or  # Check if just repeating input
+                len(set(answer.split())) < 5):  # Check for very limited vocabulary
+                
+                print(f"Poor LLM response detected: '{answer[:50]}...', providing intelligent fallback...")
+                # Provide intelligent fallback based on question type
                 main_topic = extract_main_topic(clean_context)
+                
                 if 'ai_tech' in question_types or 'plans' in question_types:
-                    enhanced_answer = f"""**📋 Analysis for: {question}**
+                    enhanced_answer = f"""**📋 Expert Analysis for: {question}**
 
-**Current Article Focus:** This article primarily discusses {main_topic}.
+**Article Assessment:** This article primarily discusses {main_topic} and does not contain information about Microsoft's AI strategies or technology plans for 2026.
+
+**🔍 What the article covers instead:**
+{clean_context[:200]}...
+
+**💡 To find Microsoft's AI strategies for 2026:**
+- **Official Sources:** Microsoft.com investor relations and AI announcements
+- **Technology Events:** Microsoft Build, Ignite conferences
+- **Strategic Documents:** Annual reports and strategic planning documents
+- **Industry Analysis:** Technology publications covering Microsoft's AI roadmap
+- **Research Reports:** Investment analyst reports on Microsoft's AI initiatives
+
+**🎯 Why this information isn't in stock articles:**
+Stock-focused articles typically discuss market performance and financial factors rather than detailed technology strategies and future planning."""
+                    return enhanced_answer
+                    
+                elif 'financial' in question_types:
+                    enhanced_answer = f"""**📋 Financial Analysis for: {question}**
+
+**Article Content:** This article discusses {main_topic} but doesn't provide the specific financial information requested.
+
+**💡 For detailed financial analysis, check:**
+- Financial analyst reports and price targets
+- Earnings call transcripts and investor presentations
+- SEC filings and quarterly reports
+- Financial news services and investment research platforms"""
+                    return enhanced_answer
+                
+                else:
+                    enhanced_answer = f"""**📋 Analysis Result for: {question}**
+
+**Current Article Content:** This article focuses on {main_topic}.
+
+**🔍 Assessment:** The article doesn't contain specific information to answer your question about '{question}'.
+
+**💡 Recommendation:** For comprehensive information about this topic, consider sources that specifically address this subject area.
+
+**📰 Current Article Summary:** {clean_context[:150]}..."""
+                    return enhanced_answer
 
 **🔍 Why this question can't be answered from this article:**
 The article doesn't contain information about AI strategies, technology plans, or future initiatives.

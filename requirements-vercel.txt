@@ -1,6 +1,0 @@
-streamlit
-langchain-community
-langchain-core
-requests
-beautifulsoup4
-python-dotenv

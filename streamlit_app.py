@@ -159,23 +159,156 @@ def get_advanced_llm():
     """Get cached advanced LLM"""
     return load_advanced_llm()
 
+def analyze_question_type(question):
+    """Analyze the question to understand what type of information is being requested"""
+    question_lower = question.lower()
+    
+    # Question type patterns
+    question_types = {
+        'plans': ['plan', 'plans', 'strategy', 'roadmap', 'future', 'initiative', 'upcoming'],
+        'financial': ['price', 'target price', 'revenue', 'profit', 'earnings', 'financial', 'valuation'],
+        'ai_tech': ['ai', 'artificial intelligence', 'technology', 'innovation', 'digital'],
+        'performance': ['performance', 'growth', 'decline', 'increase', 'decrease', 'change'],
+        'investment': ['investment', 'invest', 'funding', 'capital', 'spending'],
+        'market': ['market', 'competition', 'industry', 'sector'],
+        'general': ['what', 'why', 'how', 'when', 'where']
+    }
+    
+    detected_types = []
+    for q_type, keywords in question_types.items():
+        if any(keyword in question_lower for keyword in keywords):
+            detected_types.append(q_type)
+    
+    return detected_types if detected_types else ['general']
+
+def create_smart_prompt(question, context, question_types):
+    """Create an intelligent prompt based on question type and context relevance"""
+    
+    # Check if context is relevant to the question
+    question_keywords = set(question.lower().split())
+    context_words = set(context.lower().split())
+    
+    # Remove common stop words for better matching
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+    meaningful_q_words = question_keywords - stop_words
+    
+    # Check for keyword overlap
+    keyword_overlap = len(meaningful_q_words.intersection(context_words)) / max(len(meaningful_q_words), 1)
+    
+    # Create context-aware prompts with helpful guidance
+    if 'ai_tech' in question_types or 'plans' in question_types:
+        if keyword_overlap < 0.2:  # Low relevance
+            return f"""You are an expert business analyst. A user is asking: "{question}"
+
+Current article content: {context}
+
+Instructions:
+1. First, analyze if this article contains information about AI plans, technology strategies, or future initiatives
+2. If it doesn't, provide a helpful response that:
+   - Explains what the article actually covers
+   - Suggests what type of sources would contain AI/technology plan information
+   - Provides general knowledge about where such information is typically found (investor calls, tech conferences, annual reports, etc.)
+3. If it does contain relevant info, provide a detailed answer
+
+Respond in a helpful, professional manner:"""
+        else:
+            return f"Based on this article about technology and business plans, provide a comprehensive answer to: {question}\n\nArticle: {context}\n\nDetailed analysis:"
+    
+    elif 'financial' in question_types:
+        if 'price' in question.lower() and 'target' not in context.lower() and '$' not in context:
+            return f"""You are a financial analyst. A user is asking: "{question}"
+
+Current article content: {context}
+
+Instructions:
+1. Check if this article contains specific price targets, valuations, or financial projections
+2. If not, provide a helpful response that:
+   - Explains what financial information the article does contain
+   - Suggests where to find price targets (analyst reports, financial databases, investment research)
+   - Mentions what factors typically influence stock price targets
+3. If it does contain financial info, analyze it thoroughly
+
+Provide a professional financial analysis response:"""
+        else:
+            return f"As a financial analyst, analyze this article and answer: {question}\n\nArticle: {context}\n\nFinancial analysis:"
+    
+    elif keyword_overlap > 0.3:  # Good relevance
+        return f"Based on this relevant article, provide a comprehensive and detailed answer to: {question}\n\nArticle: {context}\n\nExpert analysis:"
+    
+    else:  # Low relevance - provide helpful guidance
+        return f"""You are an expert analyst. A user is asking: "{question}"
+
+Current article content: {context}
+
+Instructions:
+1. Analyze what this article actually discusses
+2. Explain why it may not directly answer the user's question
+3. Provide helpful guidance on:
+   - What type of sources would better answer their question
+   - Any related information from the article that might be useful
+   - General knowledge that could help them understand the topic
+
+Provide a helpful, informative response even if the article doesn't directly answer the question:"""
+
 def generate_llm_response(question, context, model_pipeline, model_name):
-    """Generate response using the loaded LLM"""
+    """Generate response using the loaded LLM with intelligent prompting"""
     try:
         if not model_pipeline:
             return "⚠️ LLM not available. Using fallback analysis."
         
         # Prepare context (limit to avoid token limits)
         clean_context = clean_text_content(context)
-        if len(clean_context) > 2500:
-            clean_context = clean_context[:2500] + "..."
+        if len(clean_context) > 2200:  # Leave room for prompt
+            clean_context = clean_context[:2200] + "..."
+        
+        # Analyze question type for smarter prompting
+        question_types = analyze_question_type(question)
         
         if "flan-t5" in model_name.lower() or "t5" in model_name.lower():
-            # For T5-based models, use instruction format
-            prompt = f"Based on the following content, answer this question in detail: {question}\n\nContent: {clean_context}\n\nAnswer:"
+            # Create intelligent prompt based on question analysis
+            prompt = create_smart_prompt(question, clean_context, question_types)
             
-            response = model_pipeline(prompt, max_length=400, num_return_sequences=1)
-            return response[0]['generated_text'].strip()
+            response = model_pipeline(prompt, max_length=500, num_return_sequences=1, do_sample=True, temperature=0.3)
+            answer = response[0]['generated_text'].strip()
+            
+            # Enhanced post-processing for better responses
+            if len(answer) < 20 or answer.lower() in ['data', 'jobs data', 'stock', 'microsoft', 'ai', 'not available']:
+                # Fallback to a more detailed analysis
+                main_topic = extract_main_topic(clean_context)
+                if 'ai_tech' in question_types or 'plans' in question_types:
+                    enhanced_answer = f"""**📋 Analysis for: {question}**
+
+**Current Article Focus:** This article primarily discusses {main_topic}.
+
+**🔍 Why this question can't be answered from this article:**
+The article doesn't contain information about AI strategies, technology plans, or future initiatives.
+
+**💡 Where to find this information:**
+- Microsoft's investor relations website and quarterly earnings calls
+- Technology conferences like Microsoft Build or Ignite
+- Annual reports (10-K filings) and strategic announcements
+- Tech industry publications covering Microsoft's AI initiatives
+
+**🔗 Related context from article:**
+Based on the current article's focus on {main_topic}, you might also be interested in how market conditions affect technology investments and strategic planning."""
+                else:
+                    enhanced_answer = f"""**📋 Analysis for: {question}**
+
+**Current Article Content:** {main_topic}
+
+**🔍 Analysis:** The provided article doesn't contain specific information to directly answer your question about '{question}'.
+
+**💡 Recommendation:** For comprehensive information about your question, consider sources that specifically cover this topic area.
+
+**🔗 Context:** The article provides insights into {main_topic}, which may be relevant background information."""
+                
+                return enhanced_answer
+            
+            # Check if answer indicates unavailability but enhance it
+            if any(phrase in answer.lower() for phrase in ['does not contain', 'not discuss', 'does not provide', 'not mention', 'no information']):
+                return f"**📋 Expert Analysis:** {answer}"
+            
+            return f"**💡 Answer:** {answer}"
             
         elif "distilbert" in model_name.lower() or "squad" in model_name.lower():
             # For BERT-style Q&A models
@@ -183,20 +316,38 @@ def generate_llm_response(question, context, model_pipeline, model_name):
             answer = response['answer']
             confidence = response['score']
             
-            if confidence > 0.1:  # Only return if reasonably confident
-                return answer
+            if confidence > 0.4:  # Higher confidence threshold
+                return f"**Answer:** {answer} (Confidence: {confidence:.2f})"
             else:
-                return "⚠️ Low confidence answer from model."
+                main_topic = extract_main_topic(clean_context)
+                return f"**Analysis Result:** The article doesn't contain sufficient information to answer '{question}' with high confidence. The content primarily focuses on {main_topic}."
             
         else:
-            # Generic text generation
-            prompt = f"Question: {question}\nContext: {clean_context[:2000]}\nDetailed Answer:"
-            response = model_pipeline(prompt, max_length=300)
-            return response[0]['generated_text'].split("Detailed Answer:")[-1].strip()
+            # Generic text generation with improved prompt
+            prompt = create_smart_prompt(question, clean_context, question_types)
+            response = model_pipeline(prompt, max_length=350)
+            answer = response[0]['generated_text'].split("Answer:")[-1].strip()
+            return f"**Answer:** {answer}" if answer else "**Analysis Result:** The provided article doesn't contain information relevant to your question."
             
     except Exception as e:
         print(f"LLM generation failed: {e}")
         return f"⚠️ Error generating response: {str(e)}"
+
+def extract_main_topic(content):
+    """Extract the main topic from content for better error messages"""
+    content_lower = content.lower()
+    if 'stock' in content_lower and 'decline' in content_lower:
+        return "stock market performance and decline factors"
+    elif 'financial' in content_lower or 'earnings' in content_lower:
+        return "financial performance and earnings"
+    elif 'investment' in content_lower:
+        return "investment analysis"
+    elif 'market' in content_lower:
+        return "market conditions and trends"
+    else:
+        # Get first few meaningful words
+        words = content.split()[:10]
+        return f"topics including {' '.join(words[:5])}..."
 
 # Function for AI-powered question answering
 def ai_powered_answer(question, articles, mode="Detailed", use_context=True):

@@ -3274,7 +3274,7 @@ if st.session_state.articles:
                                 value=default_question,
                                 placeholder="e.g., What companies were mentioned? What are the main themes?")
     with col2:
-        search_type = st.selectbox("Search Type", ["Keyword", "Semantic", "AI-Powered"], help="Keyword: exact word matching, Semantic: meaning-based, AI-Powered: LLM reasoning")
+        search_type = st.selectbox("Search Type", ["Semantic", "AI-Powered"], help="Semantic: meaning-based search, AI-Powered: LLM reasoning with web search")
     
     # Initialize variables for all search types
     enable_web_search = True  # Default value
@@ -3503,39 +3503,13 @@ if st.session_state.articles:
                     content_lower = content.lower()
                     title_lower = title.lower()
                     
-                    # Enhanced relevance scoring
-                    if search_type == "Keyword":
-                        # Exact word matching
-                        content_words = set(re.findall(r'\b\w+\b', content_lower))
-                        title_words = set(re.findall(r'\b\w+\b', title_lower))
-                        
-                        common_content_words = meaningful_words.intersection(content_words)
-                        common_title_words = meaningful_words.intersection(title_words)
-                        
-                        # Title matches get higher weight
-                        relevance_score = len(common_content_words) + (len(common_title_words) * 3)
-                        
-                        # If no exact matches, try partial matching
-                        if relevance_score == 0 and meaningful_words:
-                            for word in meaningful_words:
-                                # Look for partial matches (contains word)
-                                if any(word in content_word for content_word in content_words):
-                                    relevance_score += 0.5
-                                if any(word in title_word for title_word in title_words):
-                                    relevance_score += 1.5
-                        
-                        st.write(f"  🎯 Content matches: {list(common_content_words)}")
-                        st.write(f"  📝 Title matches: {list(common_title_words)}")
-                        st.write(f"  📊 Score: {relevance_score}")
-                        
-                    else:
-                        # Semantic matching
-                        relevance_score = 0
-                        for word in meaningful_words:
-                            if word in content_lower:
-                                relevance_score += content_lower.count(word)
-                            if word in title_lower:
-                                relevance_score += title_lower.count(word) * 2
+                    # Enhanced relevance scoring - Semantic matching
+                    relevance_score = 0
+                    for word in meaningful_words:
+                        if word in content_lower:
+                            relevance_score += content_lower.count(word)
+                        if word in title_lower:
+                            relevance_score += title_lower.count(word) * 2
                     
                     # Lower the threshold for showing results (include partial matches)
                     if relevance_score >= 0.5:
@@ -3587,8 +3561,8 @@ if st.session_state.articles:
             # Sort results by relevance
             results.sort(key=lambda x: x['score'], reverse=True)
             
-            # Only show results summary for Keyword and Semantic searches, not AI-Powered
-            if search_type in ["Keyword", "Semantic"]:
+            # Only show results summary for Semantic searches, not AI-Powered
+            if search_type == "Semantic":
                 if results:
                     st.success(f"🎯 Found {len(results)} relevant source(s)")
                     

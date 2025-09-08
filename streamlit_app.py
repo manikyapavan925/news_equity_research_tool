@@ -195,60 +195,24 @@ def create_smart_prompt(question, context, question_types):
     # Check for keyword overlap
     keyword_overlap = len(meaningful_q_words.intersection(context_words)) / max(len(meaningful_q_words), 1)
     
-    # Create context-aware prompts with helpful guidance
+    # Create simpler, more direct prompts to avoid repetition
     if 'ai_tech' in question_types or 'plans' in question_types:
         if keyword_overlap < 0.2:  # Low relevance
-            return f"""You are an expert business analyst. A user is asking: "{question}"
-
-Current article content: {context}
-
-Instructions:
-1. First, analyze if this article contains information about AI plans, technology strategies, or future initiatives
-2. If it doesn't, provide a helpful response that:
-   - Explains what the article actually covers
-   - Suggests what type of sources would contain AI/technology plan information
-   - Provides general knowledge about where such information is typically found (investor calls, tech conferences, annual reports, etc.)
-3. If it does contain relevant info, provide a detailed answer
-
-Respond in a helpful, professional manner:"""
+            return f"Question: {question}\n\nArticle content: {context}\n\nAnalysis: This article does not contain information about AI strategies or technology plans. The article focuses on different topics. To find information about Microsoft's AI strategies for 2026, you would need to check Microsoft's official announcements, investor presentations, or technology conference talks.\n\nAnswer:"
         else:
-            return f"Based on this article about technology and business plans, provide a comprehensive answer to: {question}\n\nArticle: {context}\n\nDetailed analysis:"
+            return f"Question: {question}\n\nArticle content: {context}\n\nBased on the article, provide a clear and concise answer:"
     
     elif 'financial' in question_types:
         if 'price' in question.lower() and 'target' not in context.lower() and '$' not in context:
-            return f"""You are a financial analyst. A user is asking: "{question}"
-
-Current article content: {context}
-
-Instructions:
-1. Check if this article contains specific price targets, valuations, or financial projections
-2. If not, provide a helpful response that:
-   - Explains what financial information the article does contain
-   - Suggests where to find price targets (analyst reports, financial databases, investment research)
-   - Mentions what factors typically influence stock price targets
-3. If it does contain financial info, analyze it thoroughly
-
-Provide a professional financial analysis response:"""
+            return f"Question: {question}\n\nArticle content: {context}\n\nAnalysis: This article does not provide specific price targets or financial projections. For price targets, check financial analysts' reports or investment research.\n\nAnswer:"
         else:
-            return f"As a financial analyst, analyze this article and answer: {question}\n\nArticle: {context}\n\nFinancial analysis:"
+            return f"Question: {question}\n\nArticle content: {context}\n\nProvide a clear financial analysis based on the article:"
     
     elif keyword_overlap > 0.3:  # Good relevance
-        return f"Based on this relevant article, provide a comprehensive and detailed answer to: {question}\n\nArticle: {context}\n\nExpert analysis:"
+        return f"Question: {question}\n\nArticle content: {context}\n\nAnswer:"
     
-    else:  # Low relevance - provide helpful guidance
-        return f"""You are an expert analyst. A user is asking: "{question}"
-
-Current article content: {context}
-
-Instructions:
-1. Analyze what this article actually discusses
-2. Explain why it may not directly answer the user's question
-3. Provide helpful guidance on:
-   - What type of sources would better answer their question
-   - Any related information from the article that might be useful
-   - General knowledge that could help them understand the topic
-
-Provide a helpful, informative response even if the article doesn't directly answer the question:"""
+    else:  # Low relevance - be direct
+        return f"Question: {question}\n\nArticle content: {context}\n\nThis article does not contain information directly relevant to your question. The article discusses other topics.\n\nAnswer:"
 
 def generate_llm_response(question, context, model_pipeline, model_name):
     """Generate response using the loaded LLM with intelligent prompting"""
@@ -268,8 +232,42 @@ def generate_llm_response(question, context, model_pipeline, model_name):
             # Create intelligent prompt based on question analysis
             prompt = create_smart_prompt(question, clean_context, question_types)
             
-            response = model_pipeline(prompt, max_length=500, num_return_sequences=1, do_sample=True, temperature=0.3)
+            # Add stopping criteria and better generation parameters
+            response = model_pipeline(
+                prompt, 
+                max_length=300,  # Reduced to prevent repetition
+                num_return_sequences=1, 
+                do_sample=True, 
+                temperature=0.1,  # Lower temperature for more focused responses
+                top_p=0.9,  # Nucleus sampling to avoid repetition
+                repetition_penalty=1.5,  # Penalty for repeating text
+                early_stopping=True,
+                pad_token_id=model_pipeline.tokenizer.eos_token_id
+            )
             answer = response[0]['generated_text'].strip()
+            
+            # Check for repetitive content and fix it
+            if is_repetitive_response(answer):
+                # If response is repetitive, provide a clean fallback
+                main_topic = extract_main_topic(clean_context)
+                if 'ai_tech' in question_types or 'plans' in question_types:
+                    clean_answer = f"""**📋 Analysis for: {question}**
+
+**Current Article:** This article discusses {main_topic} but does not contain information about AI strategies or technology plans for 2026.
+
+**💡 For Microsoft AI strategies 2026, check:**
+- Microsoft's official AI announcements and roadmaps
+- Annual investor presentations and earnings calls  
+- Microsoft Build conference presentations
+- Azure AI service updates and documentation
+
+**🔗 Context:** The current article focuses on {main_topic} rather than future AI initiatives."""
+                else:
+                    clean_answer = f"""**📋 Analysis:** The article about {main_topic} doesn't contain specific information to answer your question about '{question}'.
+
+**💡 Suggestion:** Look for sources that specifically cover this topic for detailed information."""
+                
+                return clean_answer
             
             # Enhanced post-processing for better responses
             if len(answer) < 20 or answer.lower() in ['data', 'jobs data', 'stock', 'microsoft', 'ai', 'not available']:
@@ -348,6 +346,50 @@ def extract_main_topic(content):
         # Get first few meaningful words
         words = content.split()[:10]
         return f"topics including {' '.join(words[:5])}..."
+
+def is_repetitive_response(text):
+    """Detect if the response is repetitive or stuck in a loop"""
+    if not text or len(text) < 50:
+        return False
+    
+    # Check for exact phrase repetition
+    sentences = text.split('.')
+    if len(sentences) > 3:
+        # Check if the same sentence appears multiple times
+        sentence_counts = {}
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 10:  # Only check meaningful sentences
+                sentence_counts[sentence] = sentence_counts.get(sentence, 0) + 1
+                if sentence_counts[sentence] > 2:  # Same sentence repeated 3+ times
+                    return True
+    
+    # Check for word repetition patterns
+    words = text.split()
+    if len(words) > 20:
+        # Check if we have excessive repetition of the same phrases
+        word_counts = {}
+        for word in words:
+            if len(word) > 3:  # Only count meaningful words
+                word_counts[word] = word_counts.get(word, 0) + 1
+        
+        # If any word appears more than 30% of the time, it's likely repetitive
+        max_word_count = max(word_counts.values()) if word_counts else 0
+        if max_word_count > len(words) * 0.3:
+            return True
+    
+    # Check for specific repetitive patterns
+    repetitive_patterns = [
+        "The purpose of the article is to provide",
+        "The purpose of this article is to",
+        "information about AI plans, technology strategies"
+    ]
+    
+    for pattern in repetitive_patterns:
+        if text.count(pattern) > 2:
+            return True
+    
+    return False
 
 # Function for AI-powered question answering
 def ai_powered_answer(question, articles, mode="Detailed", use_context=True):

@@ -451,6 +451,78 @@ def is_repetitive_response(text):
     
     return False
 
+# Enhanced real-time AI function
+def generate_realtime_ai_answer(question, articles, use_context=True):
+    """Generate intelligent AI answers with real-time LLM knowledge"""
+    
+    if not articles:
+        return "⚠️ No articles available for analysis."
+    
+    # Get the LLM
+    model_pipeline, model_name = get_advanced_llm()
+    
+    if not model_pipeline:
+        return "⚠️ AI model not available. Please try again later."
+    
+    try:
+        if use_context:
+            # Use article content as context
+            combined_content = ""
+            for i, article in enumerate(articles):
+                content = article.get('content', '')
+                title = article.get('title', f'Article {i+1}')
+                if content:
+                    clean_content = clean_text_content(content)
+                    combined_content += f"\n\n=== {title} ===\n{clean_content[:1000]}"
+            
+            # Create context-aware prompt for better results
+            prompt = f"""Answer this question comprehensively. Use the article content when relevant, but also provide additional insights from your knowledge.
+
+Question: {question}
+
+Article content for context:
+{combined_content[:2000]}
+
+Instructions:
+1. If the articles contain relevant information, use it
+2. Supplement with your knowledge to provide a complete answer
+3. Be specific and detailed
+4. If the articles don't cover the topic, still provide a helpful response using your knowledge
+
+Comprehensive answer:"""
+        
+        else:
+            # General knowledge mode
+            prompt = f"""Provide a comprehensive, knowledgeable answer to this question:
+
+Question: {question}
+
+Please give a detailed, professional analysis based on your knowledge of business, technology, and finance.
+
+Answer:"""
+        
+        # Generate response with better parameters
+        response = model_pipeline(
+            prompt, 
+            max_length=600, 
+            num_return_sequences=1, 
+            do_sample=True, 
+            temperature=0.3,
+            repetition_penalty=1.3,
+            no_repeat_ngram_size=3
+        )
+        
+        answer = response[0]['generated_text'].strip()
+        
+        # Check for quality and return appropriate response
+        if len(answer) > 50 and not detect_repetition(answer):
+            return f"**🤖 AI Analysis:**\n\n{answer}\n\n**Model:** {model_name}\n**Mode:** {'Context-aware' if use_context else 'General knowledge'}"
+        else:
+            return f"**🤖 AI Analysis for: {question}**\n\nI'm having difficulty generating a complete response. Try rephrasing your question or use the Semantic search mode as an alternative."
+            
+    except Exception as e:
+        return f"**⚠️ AI Processing Error:** {str(e)}\n\nTry using Semantic search mode as an alternative."
+
 # Function for AI-powered question answering
 def ai_powered_answer(question, articles, mode="Detailed", use_context=True):
     """Generate AI-powered answers using advanced LLM reasoning"""
@@ -2021,14 +2093,12 @@ if st.session_state.articles:
     
     # Add advanced AI toggle
     if search_type == "AI-Powered":
-        st.info("🤖 AI-Powered mode uses LLM reasoning to answer questions intelligently, even if exact keywords aren't present in the article.")
+        st.info("🤖 AI-Powered mode uses advanced LLM reasoning to provide intelligent answers, even for topics not directly covered in the articles.")
         
-        col3, col4 = st.columns([2, 1])
-        with col3:
-            ai_mode = st.selectbox("AI Response Mode", ["Detailed", "Concise", "Analytical"], 
-                                 help="Detailed: Comprehensive analysis, Concise: Brief summary, Analytical: Deep insights")
-        with col4:
-            use_context = st.checkbox("Include Context", value=True, help="Include article context in AI response")
+        use_context = st.checkbox("Use article context", value=True, 
+                                help="When enabled, uses article content as context. When disabled, provides general knowledge answers.")
+    else:
+        use_context = True
     
     # Clear query params if question was loaded
     if default_question:
@@ -2038,7 +2108,7 @@ if st.session_state.articles:
     auto_search = bool(default_question)  # Auto-search if question came from quick button
     
     # Smart AI-Generated Questions based on article content
-    if not auto_search and st.session_state.articles:
+    if st.session_state.articles:
         st.markdown("**🧠 Smart Questions (AI-Generated):**")
         
         # Generate intelligent questions based on actual article content
@@ -2138,79 +2208,21 @@ if st.session_state.articles:
                         })
             
             elif search_type == "AI-Powered":
-                st.info("🤖 Using AI-Powered analysis to answer your question...")
+                st.info("🤖 Using AI-Powered analysis to generate intelligent answers...")
                 
-                # Get AI-powered response
-                ai_results = ai_powered_answer(question, st.session_state.articles, ai_mode, use_context)
+                # Get enhanced real-time AI response
+                ai_response = generate_realtime_ai_answer(question, st.session_state.articles, use_context)
                 
-                for ai_result in ai_results:
-                    confidence = ai_result.get('confidence', 0.5)
-                    accuracy_data = ai_result.get('accuracy', {})
-                    accuracy_display = format_accuracy_display(accuracy_data)
-                    
-                    st.success(f"🧠 AI Analysis Complete")
-                    
-                    # Display confidence and accuracy metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("🎯 Confidence", f"{confidence:.1%}")
-                    with col2:
-                        st.metric(f"{accuracy_display['icon']} Accuracy", accuracy_display['percentage'])
-                    with col3:
-                        st.metric("📊 Relevance", f"{accuracy_data.get('content_relevance', 0):.1%}")
-                    with col4:
-                        st.metric("✅ Consistency", f"{accuracy_data.get('factual_consistency', 0):.1%}")
-                    
-                    with st.expander(f"🤖 {ai_result['title']}", expanded=True):
-                        st.markdown(ai_result['content'])
-                        
-                        # Detailed accuracy breakdown
-                        st.markdown("### 📊 Answer Quality Analysis")
-                        
-                        acc_col1, acc_col2 = st.columns(2)
-                        with acc_col1:
-                            st.markdown("**Accuracy Components:**")
-                            st.progress(accuracy_data.get('content_relevance', 0), text=f"Content Relevance: {accuracy_data.get('content_relevance', 0):.1%}")
-                            st.progress(accuracy_data.get('factual_consistency', 0), text=f"Factual Consistency: {accuracy_data.get('factual_consistency', 0):.1%}")
-                            st.progress(accuracy_data.get('information_coverage', 0), text=f"Information Coverage: {accuracy_data.get('information_coverage', 0):.1%}")
-                            st.progress(accuracy_data.get('source_reliability', 0), text=f"Source Reliability: {accuracy_data.get('source_reliability', 0):.1%}")
-                        
-                        with acc_col2:
-                            details = accuracy_data.get('details', {})
-                            st.markdown("**Analysis Details:**")
-                            st.write(f"• Question words matched: {details.get('question_words_matched', 0)}/{details.get('total_question_words', 0)}")
-                            st.write(f"• Sources analyzed: {details.get('sources_analyzed', 0)}")
-                            st.write(f"• Key information pieces: {details.get('key_info_pieces', 0)}")
-                            
-                            # Overall accuracy assessment
-                            overall_acc = accuracy_data.get('overall_accuracy', 0)
-                            if overall_acc >= 0.8:
-                                st.success(f"🎯 High accuracy response ({overall_acc:.1%})")
-                                st.info("This response is highly reliable and well-supported by the source content.")
-                            elif overall_acc >= 0.6:
-                                st.warning(f"⚠️ Medium accuracy response ({overall_acc:.1%})")
-                                st.info("This response is moderately reliable. Some claims may need verification.")
-                            else:
-                                st.error(f"❌ Low accuracy response ({overall_acc:.1%})")
-                                st.info("This response has limited reliability. Consider asking more specific questions or providing additional sources.")
-                        
-                        if ai_result.get('sources'):
-                            st.markdown("**📚 Sources analyzed:**")
-                            for source in ai_result['sources']:
-                                st.markdown(f"• {source}")
-                        
-                        # Confidence indicator (legacy display)
-                        if confidence > 0.7:
-                            st.success(f"High confidence response ({confidence:.1%})")
-                        elif confidence > 0.4:
-                            st.warning(f"Medium confidence response ({confidence:.1%})")
-                        else:
-                            st.info(f"Low confidence response ({confidence:.1%}) - Consider asking more specific questions")
+                # Display the response
+                with st.expander("💡 AI Response", expanded=True):
+                    st.markdown(ai_response)
                 
-                # Skip regular search processing for AI mode - end function here
-                st.markdown("---")
+                # Show success message
+                context_type = "Context-Aware" if use_context else "General Knowledge"
+                st.success(f"🤖 AI Analysis Complete - Mode: {context_type}")
                 
             else:
+                # Handle other search types (Keyword, Semantic)
                 # Normal keyword search
                 for i, article in enumerate(st.session_state.articles):
                     content = article.get('content', '')

@@ -659,40 +659,37 @@ Detailed response:"""
             
             if is_financial_question:
                 prompt_variations = [
-                    f"""As a financial analyst, provide insights on this question:
+                    f"""Explain how to analyze this financial question:
 
 {question}
 
-Consider factors like:
-- Current market conditions and trends
-- Company fundamentals and performance
-- Analyst consensus and market sentiment
-- Industry outlook and competitive position
-- Economic factors affecting the sector
+Focus on educational guidance about:
+- What factors analysts consider for such evaluations
+- How investors typically research this information
+- What data sources and methods are commonly used
+- Key risks and considerations to understand
 
-Professional financial analysis:""",
+Provide educational analysis methodology without specific price predictions:""",
 
-                    f"""Financial Analysis Request: {question}
+                    f"""Educational response to: {question}
 
-Provide a comprehensive response covering:
-- Market perspective and current trends
-- Key factors influencing the stock/company
-- Analyst views and market consensus
-- Risk factors and considerations
-- Investment outlook
+Explain the analytical approach:
+- Research methodology for such financial questions
+- Important factors that influence such decisions
+- Where investors typically find reliable information
+- Risk factors and important considerations
 
-Expert Response:""",
+Focus on teaching the analysis process rather than specific predictions:""",
 
-                    f"""Investment Analysis: {question}
+                    f"""Guide on researching: {question}
 
-Please provide insights on:
-- Current market valuation and trends
-- Fundamental analysis factors
-- Technical and market sentiment
-- Industry and sector outlook
-- Professional recommendations
+Provide educational insights on:
+- How such financial analysis is typically conducted
+- What information sources are most reliable
+- Key factors that influence such evaluations
+- Professional research methods and considerations
 
-Detailed Analysis:"""
+Offer guidance on the research process without specific forecasts:"""
                 ]
             else:
                 # General business/technology questions
@@ -745,13 +742,31 @@ Please provide comprehensive insights:"""
             # Remove any leading colons or prompt remnants
             answer = re.sub(r'^[:\-\s]*', '', answer)
             
+            # Check for problematic responses that try to give specific prices
+            problematic_patterns = [
+                r'target price.*is\s*Rs\.?\s*$',  # Ends with "Rs." or "Rs" 
+                r'price.*will be\s*₹?\s*$',      # Ends with currency symbol
+                r'forecast.*is\s*\$?\s*$',       # Ends with dollar sign
+                r'prediction.*:\s*$',            # Ends with colon
+                r'estimate.*is\s*$',             # Incomplete estimates
+            ]
+            
+            is_problematic = any(re.search(pattern, answer, re.IGNORECASE) for pattern in problematic_patterns)
+            
+            # Also check if response is trying to give specific financial numbers but is incomplete
+            if ('target price' in question.lower() or 'price target' in question.lower()) and \
+               ('Rs.' in answer or '₹' in answer or '$' in answer) and \
+               (answer.endswith('Rs.') or answer.endswith('₹') or answer.endswith('$') or len(answer.split()[-1]) < 3):
+                is_problematic = True
+            
         except Exception as model_error:
             # If model generation fails, provide knowledge-based response
             answer = ""
+            is_problematic = True
             print(f"Model generation failed: {model_error}")
         
         # Enhanced quality check and intelligent fallback
-        if len(answer) > 30 and not is_repetitive_response(answer) and answer.count(' ') > 5:
+        if len(answer) > 30 and not is_repetitive_response(answer) and answer.count(' ') > 5 and not is_problematic:
             context_type = "Context-aware" if use_context else "General knowledge"
             response_id = f"#{random_seed}"
             return f"**🤖 AI Analysis {response_id}:**\n\n{answer}\n\n**Model:** {model_name} | **Mode:** {context_type} | **T:** {temperature:.1f}"

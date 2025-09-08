@@ -462,7 +462,9 @@ def generate_intelligent_fallback(question, use_context=True):
         if any(word in question_lower for word in ['target price', 'price target', 'tata motors']):
             return f"""**🤖 AI Analysis for: {question}**
 
-For Tata Motors price targets and forecasts:
+**Important Note:** I cannot provide specific target prices as I don't have access to real-time market data or current analyst reports.
+
+**For Tata Motors price targets and forecasts by 2026:**
 
 **Current Analysis Approach:**
 • **Fundamental Analysis**: Consider debt reduction progress, JLR performance, commercial vehicle demand in India
@@ -473,8 +475,9 @@ For Tata Motors price targets and forecasts:
 • **Brokerages**: ICICI Securities, Axis Capital, Motilal Oswal, HDFC Securities
 • **Global Analysis**: Morgan Stanley, Goldman Sachs reports on JLR
 • **Financial Platforms**: Bloomberg, Refinitiv, Yahoo Finance consensus
+• **Research Reports**: Jefferies, UBS, CLSA automotive sector reports
 
-**Key Factors for Dec 2025 outlook:**
+**Key Factors for 2026 outlook:**
 • JLR's luxury segment performance and new model launches
 • India CV market recovery and market share
 • Progress on EV strategy and partnerships
@@ -749,9 +752,35 @@ Please provide comprehensive insights:"""
                 r'forecast.*is\s*\$?\s*$',       # Ends with dollar sign
                 r'prediction.*:\s*$',            # Ends with colon
                 r'estimate.*is\s*$',             # Incomplete estimates
+                r'trading.*at\s*Rs\s*\d+',       # Current trading prices
+                r'is trading.*Rs\s*\d+',         # Trading information
+                r'closing price.*Rs\s*\d+',      # Closing price data
+                r'share price.*Rs\s*\d+',        # Share price data
+                r'\d+\.\d+%.*upper.*Rs\s*\d+',   # Percentage changes with prices
+                r'current price.*Rs\s*\d+',      # Current price statements
             ]
             
             is_problematic = any(re.search(pattern, answer, re.IGNORECASE) for pattern in problematic_patterns)
+            
+            # Enhanced check for inappropriate financial data responses
+            financial_question_keywords = ['target price', 'price target', 'forecast', 'prediction', 'estimate', 'valuation']
+            is_financial_question = any(keyword in question.lower() for keyword in financial_question_keywords)
+            
+            if is_financial_question:
+                # Check for responses that provide current/real-time data instead of analysis
+                inappropriate_responses = [
+                    r'trading.*\d+\.\d+%',         # Trading percentages
+                    r'Rs\s*\d+\.\d+',              # Specific rupee amounts
+                    r'₹\s*\d+',                    # Rupee symbol with numbers
+                    r'\$\s*\d+',                   # Dollar amounts
+                    r'closing price',              # References to closing prices
+                    r'last closing',               # Last closing price
+                    r'current.*price',             # Current price references
+                    r'as compared to.*closing',    # Price comparisons
+                ]
+                
+                if any(re.search(pattern, answer, re.IGNORECASE) for pattern in inappropriate_responses):
+                    is_problematic = True
             
             # Also check if response is trying to give specific financial numbers but is incomplete
             if ('target price' in question.lower() or 'price target' in question.lower()) and \

@@ -515,7 +515,7 @@ Answer:"""
         answer = response[0]['generated_text'].strip()
         
         # Check for quality and return appropriate response
-        if len(answer) > 50 and not detect_repetition(answer):
+        if len(answer) > 50 and not is_repetitive_response(answer):
             return f"**🤖 AI Analysis:**\n\n{answer}\n\n**Model:** {model_name}\n**Mode:** {'Context-aware' if use_context else 'General knowledge'}"
         else:
             return f"**🤖 AI Analysis for: {question}**\n\nI'm having difficulty generating a complete response. Try rephrasing your question or use the Semantic search mode as an alternative."

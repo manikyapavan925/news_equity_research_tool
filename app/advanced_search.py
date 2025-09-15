@@ -487,9 +487,23 @@ class AdvancedSearchEngine:
             web_data = findings['web_search']
             if 'processed_results' in web_data:
                 processed = web_data['processed_results']
-                if processed['high_quality_sources']:
+                sources_to_show = processed['high_quality_sources']
+                # Fallback: if no high quality sources, show top 2 sources regardless of score
+                if not sources_to_show and 'raw_results' in findings['web_search']:
+                    raw_results = findings['web_search']['raw_results']
+                    # Use the same structure as high_quality_sources for fallback
+                    sources_to_show = [
+                        {
+                            'url': r.get('url', ''),
+                            'title': r.get('title', ''),
+                            'content': r.get('content', ''),
+                            'quality_score': r.get('quality_score', 0)
+                        }
+                        for r in raw_results[:2]
+                    ]
+                if sources_to_show:
                     analysis_parts.append("### Latest Market Intelligence:")
-                    for source in processed['high_quality_sources'][:3]:
+                    for source in sources_to_show[:3]:
                         analysis_parts.append(f"**Source:** {source['title']}")
                         analysis_parts.append(f"{source['content'][:300]}...")
                         analysis_parts.append("")

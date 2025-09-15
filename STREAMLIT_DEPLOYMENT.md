@@ -28,8 +28,6 @@ News_Equity_Research_Tool/
 ├── README.md               # Documentation
 ├── .streamlit/
 │   └── config.toml         # Streamlit config
-├── src/
-│   └── app.py             # Full version (optional)
 └── other files...
 ```
 

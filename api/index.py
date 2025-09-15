@@ -34,7 +34,7 @@ class handler(BaseHTTPRequestHandler):
                     "Sentence Transformers"
                 ],
                 "deployment_info": {
-                    "current_platform": "Vercel (Landing Page)",
+                    "current_platform": "Streamlit Cloud",
                     "recommended_platform": "Streamlit Cloud",
                     "repository": "https://github.com/manikyapavan925/news_equity_research_tool",
                     "streamlit_deploy": "https://share.streamlit.io"

@@ -109,7 +109,7 @@ st.markdown("""
     /* Make all assistant outputs use consistent font size for Tavily and DuckDuckGo */
     div.assistant-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 200px; overflow: auto; padding: 6px; background: #ffffff; border-radius: 6px; border: 1px solid #e6e6e6; }
     /* Tavily outputs use same font size as DuckDuckGo for consistency */
-    div.tavily-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 180px; overflow: auto; padding: 6px; background: #fbfbfb; border-radius: 6px; border: 1px solid #ededed; color: #222; }
+    div.tavily-answer { font-size: 15px !important; line-height: 1.4; max-height: 180px; overflow: auto; padding: 6px; background: #fbfbfb; border-radius: 6px; border: 1px solid #ededed; color: #222; }
 </style>
 """, unsafe_allow_html=True)
 

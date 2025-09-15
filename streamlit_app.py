@@ -107,7 +107,26 @@ st.markdown("""
     /* Smaller price badge and scrollable assistant answer */
     .price-badge { font-size: 12px; font-weight: 600; margin: 6px 0; }
     /* Make all assistant outputs use consistent font size for Tavily and DuckDuckGo */
-    div.assistant-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 8px; background: #ffffff; border-radius: 6px; border: 1px solid #e6e6e6; }
+    /* Unified assistant answer style used by DuckDuckGo and now Tavily */
+    div.assistant-answer { 
+        font-size: 12.5px !important; 
+        line-height: 1.4 !important; 
+        max-height: 500px !important; 
+        min-height: 60px !important;
+        overflow-y: auto !important; 
+        overflow-x: hidden !important; 
+        padding: 10px !important; 
+        background: #ffffff !important; 
+        border-radius: 6px !important; 
+        border: 1px solid #e6e6e6 !important; 
+        color: #222 !important; 
+        word-wrap: break-word !important;
+        white-space: pre-wrap !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        scrollbar-width: thin !important;
+        scrollbar-color: #bbb #eee !important;
+    }
     /* Tavily outputs with proper scrolling and increased height for production compatibility */
     /* Stronger selector for Tavily answer scroll fix */
     div.tavily-answer, div.tavily-answer-fixed, .tavily-answer-fixed {

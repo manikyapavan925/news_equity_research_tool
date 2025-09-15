@@ -109,21 +109,25 @@ st.markdown("""
     /* Make all assistant outputs use consistent font size for Tavily and DuckDuckGo */
     div.assistant-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 8px; background: #ffffff; border-radius: 6px; border: 1px solid #e6e6e6; }
     /* Tavily outputs with proper scrolling and increased height for production compatibility */
-    div.tavily-answer { 
-        font-size: 12.5px !important; 
-        line-height: 1.4 !important; 
-        max-height: 500px !important; 
-        overflow-y: auto !important; 
-        overflow-x: hidden !important; 
-        padding: 10px !important; 
-        background: #fbfbfb !important; 
-        border-radius: 6px !important; 
-        border: 1px solid #ededed !important; 
-        color: #222 !important; 
+    /* Stronger selector for Tavily answer scroll fix */
+    div.tavily-answer, div.tavily-answer-fixed, .tavily-answer-fixed {
+        font-size: 12.5px !important;
+        line-height: 1.4 !important;
+        max-height: 500px !important;
+        min-height: 60px !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        padding: 10px !important;
+        background: #fbfbfb !important;
+        border-radius: 6px !important;
+        border: 1px solid #ededed !important;
+        color: #222 !important;
         word-wrap: break-word !important;
         white-space: pre-wrap !important;
         box-sizing: border-box !important;
         width: 100% !important;
+        scrollbar-width: thin !important;
+        scrollbar-color: #bbb #eee !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -2289,17 +2293,21 @@ else:
                                     ('tavily' in source_name.lower() or 
                                      'advanced search' in source_name.lower()))
                         
+
                         if is_tavily:
                             # Ensure full content is preserved for Tavily responses
                             full_answer = response_data.get('answer', '')
-                            # Add debugging info in development
+                            tavily_scroll_style = (
+                                "font-size:12.5px;line-height:1.4;max-height:500px;min-height:60px;overflow-y:auto;overflow-x:hidden;"
+                                "padding:10px;background:#fbfbfb;border-radius:6px;border:1px solid #ededed;color:#222;"
+                                "word-wrap:break-word;white-space:pre-wrap;box-sizing:border-box;width:100%;scrollbar-width:thin;scrollbar-color:#bbb #eee;"
+                            )
                             if len(full_answer) > 1000:
-                                # For long content, use expandable section
                                 with st.expander("📋 **Full Analysis** (Click to expand)", expanded=True):
-                                    answer_html = f"<div class='tavily-answer'>{full_answer}</div>"
+                                    answer_html = f"<div class='tavily-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
                                     st.markdown(answer_html, unsafe_allow_html=True)
                             else:
-                                answer_html = f"<div class='tavily-answer'>{full_answer}</div>"
+                                answer_html = f"<div class='tavily-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
                                 st.markdown(answer_html, unsafe_allow_html=True)
                         else:
                             answer_html = f"<div class='assistant-answer'>{response_data.get('answer','')}</div>"

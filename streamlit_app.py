@@ -107,9 +107,24 @@ st.markdown("""
     /* Smaller price badge and scrollable assistant answer */
     .price-badge { font-size: 12px; font-weight: 600; margin: 6px 0; }
     /* Make all assistant outputs use consistent font size for Tavily and DuckDuckGo */
-    div.assistant-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 200px; overflow: auto; padding: 6px; background: #ffffff; border-radius: 6px; border: 1px solid #e6e6e6; }
-    /* Tavily outputs use same font size as DuckDuckGo for consistency */
-    div.tavily-answer { font-size: 15px !important; line-height: 1.4; max-height: 180px; overflow: auto; padding: 6px; background: #fbfbfb; border-radius: 6px; border: 1px solid #ededed; color: #222; }
+    div.assistant-answer { font-size: 12.5px !important; line-height: 1.4; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 8px; background: #ffffff; border-radius: 6px; border: 1px solid #e6e6e6; }
+    /* Tavily outputs with proper scrolling and increased height for production compatibility */
+    div.tavily-answer { 
+        font-size: 12.5px !important; 
+        line-height: 1.4 !important; 
+        max-height: 500px !important; 
+        overflow-y: auto !important; 
+        overflow-x: hidden !important; 
+        padding: 10px !important; 
+        background: #fbfbfb !important; 
+        border-radius: 6px !important; 
+        border: 1px solid #ededed !important; 
+        color: #222 !important; 
+        word-wrap: break-word !important;
+        white-space: pre-wrap !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1488,10 +1503,13 @@ def get_intelligent_response(question, context=None):
 
             search_results = search_engine.search_comprehensive(question)
             if search_results and search_results.get('analysis'):
-                # Clean and return Tavily analysis from final fallback
-                cleaned_analysis = _clean_junk_text(search_results.get('analysis', ''))
-                # Also clean markdown syntax to prevent h2/h3 tags that bypass CSS
-                cleaned_analysis = _clean_markdown_for_display(cleaned_analysis)
+                # For Tavily responses, preserve most content but clean markdown syntax
+                raw_analysis = search_results.get('analysis', '')
+                # Clean markdown syntax to prevent h2/h3 tags that bypass CSS
+                cleaned_analysis = _clean_markdown_for_display(raw_analysis)
+                # Only apply light junk cleaning (no aggressive truncation)
+                cleaned_analysis = re.sub(r"[\x00-\x1f\x7f]+", " ", cleaned_analysis)
+                cleaned_analysis = re.sub(r"\s+", " ", cleaned_analysis).strip()
                 context_rel = 'High' if has_articles else 'Low'
                 return {
                     'answer': cleaned_analysis,
@@ -1594,9 +1612,10 @@ def _clean_junk_text(text: str) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = re.sub(r"[^\x00-\x7F]+", " ", cleaned)
 
-    # Truncate extremely long boilerplate sections (keep first 2000 chars)
-    if len(cleaned) > 2000:
-        cleaned = cleaned[:2000].rsplit(' ', 1)[0] + '...'
+    # Only truncate extremely long content (increased limit for Tavily responses)
+    # Allow much longer content for comprehensive analysis
+    if len(cleaned) > 8000:  # Increased from 2000 to 8000 characters
+        cleaned = cleaned[:8000].rsplit(' ', 1)[0] + '...'
 
     return cleaned
 
@@ -2271,11 +2290,20 @@ else:
                                      'advanced search' in source_name.lower()))
                         
                         if is_tavily:
-                            answer_html = f"<div class='tavily-answer'>{response_data.get('answer','')}</div>"
+                            # Ensure full content is preserved for Tavily responses
+                            full_answer = response_data.get('answer', '')
+                            # Add debugging info in development
+                            if len(full_answer) > 1000:
+                                # For long content, use expandable section
+                                with st.expander("📋 **Full Analysis** (Click to expand)", expanded=True):
+                                    answer_html = f"<div class='tavily-answer'>{full_answer}</div>"
+                                    st.markdown(answer_html, unsafe_allow_html=True)
+                            else:
+                                answer_html = f"<div class='tavily-answer'>{full_answer}</div>"
+                                st.markdown(answer_html, unsafe_allow_html=True)
                         else:
                             answer_html = f"<div class='assistant-answer'>{response_data.get('answer','')}</div>"
-                        
-                        st.markdown(answer_html, unsafe_allow_html=True)
+                            st.markdown(answer_html, unsafe_allow_html=True)
                         
                         # Show source and method information
                         col1, col2, col3 = st.columns(3)

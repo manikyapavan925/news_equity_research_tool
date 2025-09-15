@@ -100,11 +100,19 @@ class AdvancedSearchEngine:
         try:
             tavily_results = self._enhanced_tavily_search(question)
             if tavily_results:
+                # attach raw tavily results and any summaries for debugging in production
                 results['detailed_findings']['web_search'] = tavily_results
                 results['search_strategies_used'].append("Enhanced Web Search")
 
-                # Early return if we have good web results
-                if len(tavily_results.get('results', [])) >= 3:
+                # If the Tavily structure contains a direct 'results' list (legacy), use it for quick checks
+                results_count = 0
+                if isinstance(tavily_results.get('raw_results'), list):
+                    results_count = len(tavily_results.get('raw_results'))
+                elif isinstance(tavily_results.get('results'), list):
+                    results_count = len(tavily_results.get('results'))
+
+                # Early return if we have good web results (>=3)
+                if results_count >= 3:
                     results['analysis'] = self._synthesize_comprehensive_analysis(results['detailed_findings'], question)
                     results['confidence_score'] = self._calculate_confidence_score(results['detailed_findings'])
                     results['recommendations'] = self._generate_recommendations(results['detailed_findings'], question)
@@ -113,9 +121,24 @@ class AdvancedSearchEngine:
                     self._search_cache[cache_key] = (results, current_time)
                     
                     return results
+            else:
+                # No tavily results - record debug info including masked API key
+                masked = None
+                if self.tavily_api_key:
+                    k = self.tavily_api_key
+                    masked = (k[:4] + '...' + k[-4:]) if len(k) > 8 else '***masked***'
+                results['detailed_findings']['web_search'] = {
+                    'error': 'No Tavily results returned',
+                    'tavily_api_key_masked': masked
+                }
 
         except Exception as e:
-            results['detailed_findings']['web_search'] = {'error': f'Tavily search failed: {str(e)}'}
+            # Ensure we capture the exception details in the findings for production debugging
+            masked = None
+            if self.tavily_api_key:
+                k = self.tavily_api_key
+                masked = (k[:4] + '...' + k[-4:]) if len(k) > 8 else '***masked***'
+            results['detailed_findings']['web_search'] = {'error': f'Tavily search failed: {str(e)}', 'tavily_api_key_masked': masked}
 
         # Strategy 3: Multi-source Web Search (Skip if we already have good results)
         if len(results['search_strategies_used']) < 2:  # Only if we don't have enough strategies
@@ -253,6 +276,7 @@ class AdvancedSearchEngine:
                 'processed_results': self._process_tavily_results(all_results, question),
                 'query_variations': search_queries,
                 'total_results': len(all_results)
+                , 'debug': getattr(self, '_last_tavily_debug', None)
             }
         
         return None
@@ -321,12 +345,30 @@ class AdvancedSearchEngine:
                     timeout=10
                 )
                 
+                # Capture detailed response for debugging if not successful or empty
+                try:
+                    resp_text = response.text[:8000]
+                except Exception:
+                    resp_text = ''
+
                 if response.status_code == 200:
-                    data = response.json()
-                    all_results.extend(data.get('results', []))
+                    try:
+                        data = response.json()
+                        # If 'error' in response, record it in debug info
+                        if isinstance(data, dict) and data.get('error'):
+                            # record the error in a lightweight debug field on the engine instance
+                            self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': data.get('error'), 'summary': resp_text[:500]}
+                        all_results.extend(data.get('results', []))
+                    except ValueError:
+                        # JSON parse failed - record raw text for debugging
+                        self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': 'invalid_json', 'summary': resp_text[:500]}
+                else:
+                    # Non-200 status - store debug info
+                    self._last_tavily_debug = {'query': query, 'status': response.status_code, 'summary': resp_text[:500]}
                     
             except Exception as e:
-                # Silent error handling for speed
+                # Record the exception for debugging and continue
+                self._last_tavily_debug = {'query': query, 'exception': str(e)}
                 continue
         
         if all_results:

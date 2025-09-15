@@ -1481,7 +1481,10 @@ def get_intelligent_response(question, context=None):
                                 'price': price_info,
                                 'sources': search_results.get('sources', [])[:3],
                                 'context_relevance': context_rel,
-                                'debug_info': debug_info
+                                'debug_info': debug_info,
+                                'tavily_debug': search_results.get('debug'),
+                                'tavily_raw_count': len(search_results.get('raw_results', [])) if search_results.get('raw_results') else 0,
+                                'tavily_raw_sample': search_results.get('raw_results', [])[:2]
                             }
 
                     return {
@@ -1490,7 +1493,10 @@ def get_intelligent_response(question, context=None):
                         'method': f"Advanced Search (LLM + DuckDuckGo Failed - Confidence: {search_results.get('confidence_score', 0):.1%})",
                         'sources': search_results.get('sources', [])[:3],
                         'context_relevance': context_rel,
-                        'debug_info': debug_info
+                        'debug_info': debug_info,
+                        'tavily_debug': search_results.get('debug'),
+                        'tavily_raw_count': len(search_results.get('raw_results', [])) if search_results.get('raw_results') else 0,
+                        'tavily_raw_sample': search_results.get('raw_results', [])[:2]
                     }
             except Exception as search_error:
                 debug_info['tavily_error'] = str(search_error)
@@ -1540,7 +1546,10 @@ def get_intelligent_response(question, context=None):
                     'method': f"Advanced Search (Confidence: {search_results.get('confidence_score', 0):.1%})",
                     'sources': search_results.get('sources', [])[:3],
                     'context_relevance': context_rel,
-                    'debug_info': debug_info
+                    'debug_info': debug_info,
+                    'tavily_debug': search_results.get('debug'),
+                    'tavily_raw_count': len(search_results.get('raw_results', [])) if search_results.get('raw_results') else 0,
+                    'tavily_raw_sample': search_results.get('raw_results', [])[:2]
                 }
         except Exception as search_error:
             debug_info['tavily_error'] = str(search_error)
@@ -1994,6 +2003,7 @@ if valid_urls:
 col1, col2 = st.columns([4, 1])
 with col1:
     st.header("⚙️ News Research Assistant")
+        
 with col2:
     # Add URL button at top right
     if st.button("➕ Add URL", type="primary", help="Add a news article URL"):
@@ -2372,6 +2382,37 @@ else:
                                     st.error(f"❌ DuckDuckGo Error: {debug['duckduckgo_error']}")
                                 if debug.get('tavily_error'):
                                     st.error(f"❌ Tavily Error: {debug['tavily_error']}")
+
+                        # Show Tavily-specific debug if available (raw results, counts, and internal debug)
+                        if response_data.get('tavily_debug') or response_data.get('tavily_raw_count'):
+                            with st.expander("🧾 Tavily Debug Details", expanded=False):
+                                tav_debug = response_data.get('tavily_debug')
+                                tav_count = response_data.get('tavily_raw_count', 0)
+                                tav_sample = response_data.get('tavily_raw_sample', [])
+
+                                st.write(f"**Tavily raw results count:** {tav_count}")
+                                if tav_debug:
+                                    # Show the debug dict (masked keys included) in a readable format
+                                    try:
+                                        st.write("**Tavily debug:**")
+                                        st.json(tav_debug)
+                                    except Exception:
+                                        st.write(str(tav_debug))
+
+                                if tav_sample:
+                                    st.write("**Tavily raw results sample (top items):**")
+                                    for i, item in enumerate(tav_sample, 1):
+                                        if isinstance(item, dict):
+                                            title = item.get('title') or item.get('headline') or item.get('url', 'No title')
+                                            url = item.get('url', '')
+                                            snippet = item.get('content') or item.get('snippet') or ''
+                                            st.markdown(f"**{i}. {title}**")
+                                            if url:
+                                                st.markdown(f"🔗 {url}")
+                                            if snippet:
+                                                st.write(snippet[:400])
+                                        else:
+                                            st.write(f"{i}. {str(item)[:400]}")
                         
                         # Display sources if available
                         if response_data.get('sources'):

@@ -29,7 +29,8 @@ class AdvancedSearchEngine:
     """Advanced search engine with multiple strategies for comprehensive results."""
     
     def __init__(self):
-        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        # Prefer environment variable, but allow Streamlit secrets to supply the key in deployment
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY") or (getattr(st, 'secrets', {}).get('TAVILY_API_KEY') if hasattr(st, 'secrets') else None)
         self.serpapi_key = os.getenv("SERPAPI_KEY")  # Optional: SerpAPI for Google search
         
         # Initialize Tavily client if API key is available and client is compatible
@@ -100,6 +101,11 @@ class AdvancedSearchEngine:
         try:
             tavily_results = self._enhanced_tavily_search(question)
             if tavily_results:
+                # Surface debug and raw_results at top-level for callers (UI expects these keys)
+                results['debug'] = tavily_results.get('debug', getattr(self, '_last_tavily_debug', None))
+                # Normalize raw_results (some older responses use 'results')
+                results['raw_results'] = tavily_results.get('raw_results') if isinstance(tavily_results.get('raw_results'), list) else tavily_results.get('results', [])
+
                 # attach raw tavily results and any summaries for debugging in production
                 results['detailed_findings']['web_search'] = tavily_results
                 results['search_strategies_used'].append("Enhanced Web Search")
@@ -168,7 +174,11 @@ class AdvancedSearchEngine:
         
         # Cache the result
         self._search_cache[cache_key] = (results, current_time)
-        
+
+        # Ensure callers can always read these keys without crashing
+        results.setdefault('debug', getattr(self, '_last_tavily_debug', None))
+        results.setdefault('raw_results', [])
+
         return results
     
     def _analyze_article_context(self, question: str, articles: List[Dict]) -> Dict[str, Any]:
@@ -235,11 +245,20 @@ class AdvancedSearchEngine:
         
         # Try official client first if available
         if self.tavily_client:
-            return self._enhanced_tavily_search_official(question)
+            res = self._enhanced_tavily_search_official(question)
+            if not isinstance(res, dict):
+                return {'raw_results': [], 'processed_results': [], 'query_variations': [], 'total_results': 0, 'debug': getattr(self, '_last_tavily_debug', None)}
+            # Ensure debug key present
+            res.setdefault('debug', getattr(self, '_last_tavily_debug', None))
+            return res
         
         # Fallback to HTTP requests
         if self.tavily_api_key:
-            return self._enhanced_tavily_search_http(question)
+            res = self._enhanced_tavily_search_http(question)
+            if not isinstance(res, dict):
+                return {'raw_results': [], 'processed_results': [], 'query_variations': [], 'total_results': 0, 'debug': getattr(self, '_last_tavily_debug', None)}
+            res.setdefault('debug', getattr(self, '_last_tavily_debug', None))
+            return res
         
         return None
         
@@ -318,7 +337,15 @@ class AdvancedSearchEngine:
                 'total_results': len(all_results)
             }
         
-        return None
+        # Return a consistent structure even when no results were found so callers
+        # can rely on the presence of keys for debugging/UI purposes.
+        return {
+            'raw_results': [],
+            'processed_results': [],
+            'query_variations': search_queries,
+            'total_results': 0,
+            'debug': getattr(self, '_last_tavily_debug', None)
+        }
     
     def _enhanced_tavily_search_http(self, question: str) -> Dict[str, Any]:
         """Enhanced Tavily search using HTTP requests (fallback)."""
@@ -326,50 +353,67 @@ class AdvancedSearchEngine:
         search_queries = self._create_optimized_queries(question)[:2]  # Limit to 2 queries
         
         all_results = []
+        # Use a short retry loop with exponential backoff for intermittent network/API slowness
         for query in search_queries:
-            try:
-                response = requests.post(
-                    "https://api.tavily.com/search",
-                    json={
-                        "api_key": self.tavily_api_key,
-                        "query": query,
-                        "search_depth": "advanced",
-                        "include_answer": "advanced",  # Advanced answer generation
-                        "include_raw_content": True,
-                        "max_results": 8,
-                        "include_domains": [
-                            "bloomberg.com", "reuters.com", "wsj.com", "cnbc.com",
-                            "yahoo.com", "investing.com", "sec.gov", "nasdaq.com"
-                        ]
-                    },
-                    timeout=10
-                )
-                
-                # Capture detailed response for debugging if not successful or empty
+            attempt = 0
+            max_attempts = 2
+            backoff = 1.0
+            while attempt < max_attempts:
                 try:
-                    resp_text = response.text[:8000]
-                except Exception:
-                    resp_text = ''
+                    response = requests.post(
+                        "https://api.tavily.com/search",
+                        json={
+                            "api_key": self.tavily_api_key,
+                            "query": query,
+                            "search_depth": "advanced",
+                            "include_answer": "advanced",  # Advanced answer generation
+                            "include_raw_content": True,
+                            "max_results": 8,
+                            "include_domains": [
+                                "bloomberg.com", "reuters.com", "wsj.com", "cnbc.com",
+                                "yahoo.com", "investing.com", "sec.gov", "nasdaq.com"
+                            ]
+                        },
+                        timeout=30
+                    )
 
-                if response.status_code == 200:
+                    # Capture detailed response for debugging if not successful or empty
                     try:
-                        data = response.json()
-                        # If 'error' in response, record it in debug info
-                        if isinstance(data, dict) and data.get('error'):
-                            # record the error in a lightweight debug field on the engine instance
-                            self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': data.get('error'), 'summary': resp_text[:500]}
-                        all_results.extend(data.get('results', []))
-                    except ValueError:
-                        # JSON parse failed - record raw text for debugging
-                        self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': 'invalid_json', 'summary': resp_text[:500]}
-                else:
-                    # Non-200 status - store debug info
-                    self._last_tavily_debug = {'query': query, 'status': response.status_code, 'summary': resp_text[:500]}
-                    
-            except Exception as e:
-                # Record the exception for debugging and continue
-                self._last_tavily_debug = {'query': query, 'exception': str(e)}
-                continue
+                        resp_text = response.text[:8000]
+                    except Exception:
+                        resp_text = ''
+
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if isinstance(data, dict) and data.get('error'):
+                                self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': data.get('error'), 'summary': resp_text[:500]}
+                            all_results.extend(data.get('results', []))
+                            break  # successful, break retry loop
+                        except ValueError:
+                            # JSON parse failed - record raw text for debugging
+                            self._last_tavily_debug = {'query': query, 'status': response.status_code, 'error': 'invalid_json', 'summary': resp_text[:500]}
+                            break
+                    else:
+                        # Non-200 status - store debug info and decide whether to retry
+                        self._last_tavily_debug = {'query': query, 'status': response.status_code, 'summary': resp_text[:500]}
+                        # For 5xx errors, allow a retry
+                        if 500 <= response.status_code < 600 and attempt + 1 < max_attempts:
+                            attempt += 1
+                            time.sleep(backoff)
+                            backoff *= 2
+                            continue
+                        break
+
+                except Exception as e:
+                    # Record the exception for debugging and potentially retry
+                    self._last_tavily_debug = {'query': query, 'exception': str(e)}
+                    attempt += 1
+                    if attempt < max_attempts:
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                    break
         
         if all_results:
             return {

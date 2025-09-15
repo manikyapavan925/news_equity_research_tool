@@ -2304,10 +2304,12 @@ else:
                             )
                             if len(full_answer) > 1000:
                                 with st.expander("📋 **Full Analysis** (Click to expand)", expanded=True):
-                                    answer_html = f"<div class='tavily-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
+                                    # Use assistant-answer class to match DuckDuckGo rendering
+                                    answer_html = f"<div class='assistant-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
                                     st.markdown(answer_html, unsafe_allow_html=True)
                             else:
-                                answer_html = f"<div class='tavily-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
+                                # Use assistant-answer class to ensure consistent CSS behavior in production
+                                answer_html = f"<div class='assistant-answer tavily-answer-fixed' style='{tavily_scroll_style}'>{full_answer}</div>"
                                 st.markdown(answer_html, unsafe_allow_html=True)
                         else:
                             answer_html = f"<div class='assistant-answer'>{response_data.get('answer','')}</div>"

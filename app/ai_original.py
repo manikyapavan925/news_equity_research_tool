@@ -7,11 +7,137 @@ import os
 import re
 import requests
 import json
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any, Set
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+
+def fetch_company_metadata_from_yahoo(query: str) -> Optional[Dict[str, Any]]:
+    """Fetch the best-matching company metadata from Yahoo Finance search API."""
+    if not query:
+        return None
+
+    search_url = "https://query2.finance.yahoo.com/v1/finance/search"
+    params = {
+        "q": query,
+        "quotesCount": 5,
+        "newsCount": 0,
+    }
+
+    try:
+        response = requests.get(search_url, params=params, timeout=4)
+        response.raise_for_status()
+        data = response.json() or {}
+        quotes = data.get("quotes") or []
+
+        def _prioritize(quotes_list: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+            if not quotes_list:
+                return None
+
+            # Prefer equities and ETFs first, then anything else
+            equities = [q for q in quotes_list if q.get("quoteType") in {"EQUITY", "ETF"}]
+            pool = equities or quotes_list
+
+            # Exact ticker match if possible
+            query_upper = query.upper()
+            for item in pool:
+                symbol = item.get("symbol")
+                if symbol and symbol.upper() == query_upper:
+                    return item
+
+            return pool[0]
+
+        best_match = _prioritize(quotes)
+        return best_match
+
+    except requests.RequestException:
+        return None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _normalise_company_alias(alias: str) -> List[str]:
+    """Generate cleaned variants for a company alias."""
+    if not alias:
+        return []
+
+    alias_lower = alias.lower().strip()
+    if not alias_lower:
+        return []
+
+    variants = {
+        alias_lower,
+        alias_lower.replace(",", ""),
+        re.sub(r"[^a-z0-9\s]", " ", alias_lower),
+        alias_lower.replace(" inc", "").replace(" ltd", "").replace(" corp", ""),
+    }
+
+    # Include individual words for multi-word names
+    for part in alias_lower.replace(",", " ").split():
+        if len(part) > 2:
+            variants.add(part)
+
+    cleaned = {" ".join(var.split()) for var in variants if var and len(var.strip()) > 2}
+    return sorted(cleaned)
+
+
+def generate_company_variations(question: str, ticker_symbol: str, company_name: str) -> Tuple[List[str], Optional[Dict[str, Any]]]:
+    """Build dynamic company term variations using live metadata and question context."""
+    question_lower = question.lower()
+    base_terms = re.findall(r"\b[a-z]{3,}\b", question_lower)
+
+    variations: Set[str] = set(base_terms)
+    metadata: Optional[Dict[str, Any]] = None
+
+    candidate_queries: List[str] = []
+    if ticker_symbol:
+        candidate_queries.append(ticker_symbol)
+    if company_name:
+        candidate_queries.append(company_name)
+    if base_terms:
+        candidate_queries.append(" ".join(base_terms[:3]))
+
+    seen_candidates = set()
+    for candidate in candidate_queries:
+        if not candidate:
+            continue
+        candidate_key = candidate.lower()
+        if candidate_key in seen_candidates:
+            continue
+        seen_candidates.add(candidate_key)
+
+        metadata = fetch_company_metadata_from_yahoo(candidate)
+        if metadata:
+            break
+
+    if metadata:
+        for key in ("symbol", "shortname", "shortName", "longname", "longName", "displayName", "displayname", "companyName"):
+            value = metadata.get(key)
+            if isinstance(value, str):
+                for variant in _normalise_company_alias(value):
+                    variations.add(variant)
+
+        former_names = metadata.get("formerNames") or metadata.get("formerName")
+        if isinstance(former_names, list):
+            for former in former_names:
+                if isinstance(former, str):
+                    for variant in _normalise_company_alias(former):
+                        variations.add(variant)
+        elif isinstance(former_names, str):
+            for variant in _normalise_company_alias(former_names):
+                variations.add(variant)
+
+        symbol = metadata.get("symbol")
+        if isinstance(symbol, str) and symbol:
+            symbol_lower = symbol.lower()
+            variations.add(symbol_lower)
+            variations.add(symbol_lower.replace(".", ""))
+            variations.add(f"ticker {symbol_lower}")
+
+    clean_variations = sorted({term.strip() for term in variations if term and len(term.strip()) > 2})
+    return clean_variations, metadata
 
 def evaluate_response_quality(response: str, question: str) -> Dict[str, Any]:
     """
@@ -138,27 +264,54 @@ def search_with_tavily(question: str, max_results: int = 5):
         url = "https://api.tavily.com/search"
         
         # Enhance the search query for comprehensive results with better specificity
-        if any(term in question.lower() for term in ['falling', 'dropping', 'declining', 'why', 'reason']):
-            # Extract company name more accurately
-            company_match = re.search(r'\b(LSEG|London Stock Exchange Group)\b', question, re.IGNORECASE)
-            company_name = company_match.group(0) if company_match else "LSEG"
-            enhanced_query = f'"{company_name}" stock price decline reasons analysis causes factors recent news analyst commentary market reaction London Stock Exchange Group share performance'
-        elif any(term in question.lower() for term in ['target', 'forecast', 'projection']):
-            company_match = re.search(r'\b(LSEG|London Stock Exchange Group)\b', question, re.IGNORECASE)
-            company_name = company_match.group(0) if company_match else "LSEG"
-            enhanced_query = f'"{company_name}" analyst price target consensus forecast valuation report London Stock Exchange Group'
-        elif any(term in question.lower() for term in ['earnings', 'results', 'quarterly']):
-            company_match = re.search(r'\b(LSEG|London Stock Exchange Group)\b', question, re.IGNORECASE)
-            company_name = company_match.group(0) if company_match else "LSEG"
-            enhanced_query = f'"{company_name}" earnings results financial performance guidance analyst reaction London Stock Exchange Group'
-        elif any(term in question.lower() for term in ['impact', 'effect', 'gst', 'policy']):
-            company_match = re.search(r'\b(LSEG|London Stock Exchange Group)\b', question, re.IGNORECASE)
-            company_name = company_match.group(0) if company_match else "LSEG"
-            enhanced_query = f'"{company_name}" detailed impact analysis market reaction business effect financial implications London Stock Exchange Group'
+        question_lower = question.lower()
+        company_name = ''
+        company_variations: List[str] = []
+        ticker_symbol = ''
+
+        import re
+        ticker_match = re.search(r'\b([A-Z]{2,5})\b', question)
+        if ticker_match:
+            ticker_symbol = ticker_match.group(1)
+
+        company_match = re.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b', question)
+        if company_match:
+            company_name = company_match.group(1).strip()
+
+        company_variations_dynamic, metadata = generate_company_variations(question, ticker_symbol, company_name)
+
+        if metadata:
+            symbol_meta = metadata.get('symbol')
+            if isinstance(symbol_meta, str) and symbol_meta:
+                ticker_symbol = symbol_meta
+
+            for key in ("longname", "longName", "shortname", "shortName", "displayName", "displayname"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    company_name = value.strip()
+                    break
+
+        company_variations.extend(company_variations_dynamic)
+        company_variations = list(dict.fromkeys([term for term in company_variations if term]))
+
+        # Always ensure we have at least the question's base words to search for
+        base_terms = [word for word in question_lower.split() if len(word) > 3]
+        if not company_variations:
+            company_variations = base_terms
+
+        if any(term in question_lower for term in ['falling', 'dropping', 'declining', 'why', 'reason']):
+            enhanced_query = f"{question} stock price decline reasons analysis causes factors recent news analyst commentary market reaction"
+        elif any(term in question_lower for term in ['target', 'forecast', 'projection', 'price target']):
+            enhanced_query = f"{question} analyst price target consensus forecast valuation report 2025 2026"
+        elif any(term in question_lower for term in ['earnings', 'results', 'quarterly']):
+            enhanced_query = f"{question} earnings results financial performance guidance analyst reaction Q3 Q4 2025"
+        elif any(term in question_lower for term in ['market analysis', 'analysis', 'outlook', 'trends']):
+            primary_term = company_name if company_name else (ticker_symbol or base_terms[0] if base_terms else question)
+            enhanced_query = f"{primary_term} stock market analysis 2025 analyst outlook price movement trends latest news September October"
+        elif any(term in question_lower for term in ['impact', 'effect', 'gst', 'policy']):
+            enhanced_query = f"{question} detailed impact analysis market reaction business effect financial implications"
         else:
-            company_match = re.search(r'\b(LSEG|London Stock Exchange Group)\b', question, re.IGNORECASE)
-            company_name = company_match.group(0) if company_match else "LSEG"
-            enhanced_query = f'"{company_name}" comprehensive financial analysis market intelligence latest developments London Stock Exchange Group'
+            enhanced_query = question
         
         # Prepare request payload with expanded search for better results
         payload = {
@@ -187,15 +340,58 @@ def search_with_tavily(question: str, max_results: int = 5):
             results = []
             
             if data and 'results' in data:
+                # Filter and rank results for better relevance
+                company_tokens = [token for token in company_variations if token]
                 for item in data['results']:
+                    content = item.get('content', '') or ''
+                    title = item.get('title', '') or ''
+                    content_lower = content.lower()
+                    title_lower = title.lower()
+
+                    # Skip results that do not mention the company anywhere
+                    if company_tokens:
+                        if not any(token in content_lower for token in company_tokens) and not any(token in title_lower for token in company_tokens):
+                            continue
+
+                    # Calculate relevance score
+                    relevance = 0
+
+                    if company_tokens:
+                        relevance += sum(8 for token in company_tokens if token and token in content_lower)
+                        relevance += sum(12 for token in company_tokens if token and token in title_lower)
+
+                    financial_terms = ['stock', 'price', 'analyst', 'target', 'forecast', 'earnings', 'revenue', 'market', 'outlook', 'valuation', 'guidance', 'performance']
+                    relevance += sum(2 for term in financial_terms if term in content_lower)
+
+                    # Penalize generic/noise content
+                    noise_terms = ['unlock', 'subscribe', 'login', 'newsletter', 'ad ', 'advertisement', 'sign up', 'join now']
+                    relevance -= sum(6 for term in noise_terms if term in content_lower)
+
+                    # Penalize very short content
+                    if len(content) < 150:
+                        relevance -= 12
+
+                    # Add to results with combined score
                     results.append({
-                        'title': item.get('title', ''),
-                        'content': item.get('content', ''),
+                        'title': title,
+                        'content': content,
                         'url': item.get('url', ''),
-                        'score': item.get('score', 0),
+                        'score': item.get('score', 0) + (relevance / 100),
                         'published_date': item.get('published_date', ''),
-                        'source': 'tavily'
+                        'source': 'tavily',
+                        'relevance': relevance
                     })
+
+                # Sort by combined score (descending)
+                results = sorted(results, key=lambda x: x['score'], reverse=True)
+
+                filtered_results = [r for r in results if r['relevance'] > 0]
+
+                # If we filtered everything out, fall back to the top raw results
+                if not filtered_results:
+                    filtered_results = results[:max_results]
+
+                return filtered_results[:max_results]
             
             return results
         else:
@@ -550,6 +746,110 @@ def generate_chatgpt_style_general_analysis(question: str, company_name: str, in
     response += f"• Broader sector dynamics and regulatory environment"
     
     return response
+
+def generate_article_summary(article, length="Medium"):
+    """
+    Generate a summary of the article content using extractive summarization.
+    
+    Args:
+        article (dict): Article dictionary with 'content' or 'text' key and 'title' key
+        length (str): Summary length - "Short" (3 sentences), "Medium" (5 sentences), or "Detailed" (8 sentences)
+        
+    Returns:
+        str: Generated summary text
+    """
+    # Try both 'content' and 'text' keys for compatibility
+    content = article.get('content', '') or article.get('text', '')
+    title = article.get('title', 'No Title')
+    
+    if not content or len(content.strip()) < 100:
+            return "⚠️ Article content is too short to generate a meaningful summary."
+    
+    # Split content into sentences
+    sentences = re.split(r'[.!?]+', content)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    
+    if not sentences:
+        return "⚠️ Unable to extract meaningful sentences from the article."
+    
+    # Determine summary length
+    if length == "Short":
+        target_sentences = min(3, len(sentences))
+    elif length == "Medium":
+        target_sentences = min(5, len(sentences))
+    else:  # Detailed
+        target_sentences = min(8, len(sentences))
+    
+    # Simple extractive summarization
+    # Score sentences based on:
+    # 1. Position (first and last sentences often important)
+    # 2. Length (medium length sentences preferred)
+    # 3. Keyword frequency
+    
+    # Extract important keywords from title
+    title_words = set(re.findall(r'\b\w+\b', title.lower()))
+    financial_keywords = {
+        'stock', 'market', 'price', 'earnings', 'revenue', 'profit', 'loss',
+        'merger', 'acquisition', 'ipo', 'dividend', 'investment', 'trading',
+        'financial', 'economic', 'business', 'company', 'corporation', 'shares',
+        'nasdaq', 'nyse', 'dow', 'sp500', 'index', 'fund', 'bond', 'crypto',
+        'ceo', 'announces', 'appoints', 'leadership', 'strategy', 'growth'
+    }
+    
+    scored_sentences = []
+    for i, sentence in enumerate(sentences):
+        score = 0
+        sentence_lower = sentence.lower()
+        sentence_words = set(re.findall(r'\b\w+\b', sentence_lower))
+        
+        # Position scoring
+        if i == 0:  # First sentence
+            score += 3
+        elif i == len(sentences) - 1:  # Last sentence
+            score += 2
+        elif i < len(sentences) * 0.3:  # Early sentences
+            score += 1
+        
+        # Length scoring (prefer medium-length sentences)
+        word_count = len(sentence.split())
+        if 10 <= word_count <= 30:
+            score += 2
+        elif 5 <= word_count <= 50:
+            score += 1
+        
+        # Keyword scoring
+        title_matches = len(title_words.intersection(sentence_words))
+        financial_matches = len(financial_keywords.intersection(sentence_words))
+        score += title_matches * 2 + financial_matches
+        
+        # Avoid very short or very long sentences
+        if word_count < 5 or word_count > 60:
+            score -= 2
+            
+        scored_sentences.append((sentence, score, i))
+    
+    # Sort by score and select top sentences
+    scored_sentences.sort(key=lambda x: x[1], reverse=True)
+    selected_sentences = scored_sentences[:target_sentences]
+    
+    # Sort selected sentences by original order
+    selected_sentences.sort(key=lambda x: x[2])
+    
+    # Create summary
+    summary_sentences = [s[0] for s in selected_sentences]
+    summary = '. '.join(summary_sentences)
+    
+    # Add some basic cleanup
+    summary = re.sub(r'\s+', ' ', summary).strip()
+    
+    if not summary:
+        summary = sentences[0] if sentences else "Unable to generate summary."
+    
+    # Ensure proper ending
+    if not summary.endswith('.'):
+        summary += '.'
+    
+    return summary
 
 def generate_realtime_ai_answer(question, articles=None, use_context=True, enable_web_search=False):
     """

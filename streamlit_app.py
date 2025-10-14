@@ -1746,6 +1746,18 @@ if prompt := st.chat_input("Paste article URLs and ask your question..."):
                 handled = False  # track if we've produced a direct response
                 # Summarization intent or URL-only message triggers direct summary
                 question_for_detection = question.lower()
+                
+                # Check if question contains keywords from the loaded article title
+                # This helps detect when user is asking about the specific article
+                article_keywords_in_question = False
+                most_recent_article = articles_list[-1]
+                article_title = most_recent_article.get('title', '').lower()
+                article_words = set([w for w in re.findall(r'\b\w{4,}\b', article_title) if w not in ['this', 'that', 'with', 'from', 'into', 'about']])
+                question_words = set(re.findall(r'\b\w{4,}\b', question_for_detection))
+                
+                # If 2+ significant words from article title appear in question, treat as article-specific
+                common_words = article_keywords_in_question = len(article_words & question_words) >= 2
+                
                 summarization_keywords = [
                     'summarize', 'summarise', 'summary', 'what is this about', 'what is this article',
                     'give me a summary', 'brief', 'overview', 'tell me about this', 'key points', 'tl;dr'
@@ -1835,6 +1847,7 @@ if prompt := st.chat_input("Paste article URLs and ask your question..."):
                 if not handled:
                     # Try Q&A model first for specific questions
                     use_qa_fallback = False
+                    qa_attempted = False
                     
                     try:
                         from transformers import pipeline
@@ -1856,11 +1869,44 @@ if prompt := st.chat_input("Paste article URLs and ask your question..."):
                         result = qa_model(question=question, context=combined_context)
                         answer = result['answer']
                         confidence = result['score']
+                        qa_attempted = True
                         
                         # Check if answer quality is good enough
-                        # Low confidence or very short answers trigger fallback
-                        if confidence < 0.15 or len(answer.split()) < 3:
-                            use_qa_fallback = True
+                        # If question contains article keywords, use lower threshold
+                        confidence_threshold = 0.05 if article_keywords_in_question else 0.15
+                        
+                        if confidence < confidence_threshold or len(answer.split()) < 3:
+                            # If question is clearly about the article, don't use web fallback
+                            if article_keywords_in_question:
+                                # Generate answer from article text directly
+                                article_text = articles_list[-1].get('text', '')
+                                # Find relevant sentences
+                                sentences = [s.strip() for s in re.split(r'[.!?]\n', article_text) if len(s.strip()) > 30]
+                                
+                                # Score sentences by relevance
+                                question_terms = set(question_for_detection.split())
+                                scored_sentences = []
+                                for sent in sentences[:50]:  # Check first 50 sentences
+                                    sent_lower = sent.lower()
+                                    score = sum(1 for term in question_terms if term in sent_lower and len(term) > 3)
+                                    if score > 0:
+                                        scored_sentences.append((score, sent))
+                                
+                                scored_sentences.sort(reverse=True, key=lambda x: x[0])
+                                
+                                if scored_sentences:
+                                    top_sentences = [s[1] for s in scored_sentences[:3]]
+                                    ai_response = f"**Based on the article:**\n\n"
+                                    ai_response += " ".join(top_sentences)
+                                    ai_response += f"\n\n**Source:** {articles_list[-1]['title']}"
+                                    handled = True
+                                else:
+                                    # Use Q&A result anyway
+                                    ai_response = f"**Answer from article:** {answer}\n\n"
+                                    ai_response += f"**Source:** {articles_list[-1]['title']}"
+                                    handled = True
+                            else:
+                                use_qa_fallback = True
                         else:
                             # Format response with context
                             ai_response = f"**Answer:** {answer}\n\n"
@@ -1870,12 +1916,20 @@ if prompt := st.chat_input("Paste article URLs and ask your question..."):
                             ai_response += f"**Based on {len(articles_list)} article(s):**\n"
                             for art in articles_list[:3]:
                                 ai_response += f"• {art['title']} ({art['source']})\n"
+                            handled = True
                             
                     except Exception as e:
-                        use_qa_fallback = True
+                        use_qa_fallback = not article_keywords_in_question  # Don't fallback if question is about article
+                        if article_keywords_in_question:
+                            # Generate basic answer from article
+                            article_text = articles_list[-1].get('text', '')
+                            first_sentences = '. '.join([s.strip() for s in re.split(r'[.!?]\n', article_text) if len(s.strip()) > 30][:3])
+                            ai_response = f"**Based on the article:**\n\n{first_sentences}\n\n**Source:** {articles_list[-1]['title']}"
+                            handled = True
                     
                     # Fallback to comprehensive AI analysis if Q&A didn't work well
-                    if use_qa_fallback:
+                    # BUT only if question is NOT clearly about the loaded article
+                    if use_qa_fallback and not handled:
                         # Try web search first for better real-time data
                         tavily_key = os.getenv('TAVILY_API_KEY')
                         

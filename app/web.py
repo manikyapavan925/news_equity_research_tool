@@ -89,7 +89,7 @@ def fetch_article_content(url: str, max_length: int = 2000) -> Dict[str, Any]:
             'User-Agent': get_random_user_agent(),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
+            # Removed 'Accept-Encoding' to let requests handle compression automatically
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'max-age=0',
@@ -170,8 +170,17 @@ def fetch_article_content(url: str, max_length: int = 2000) -> Dict[str, Any]:
                 else:
                     raise e
         
-        # Parse HTML content
-        soup = BeautifulSoup(response.content, 'html.parser')
+        # Force UTF-8 encoding if needed
+        if response.apparent_encoding and response.apparent_encoding.lower() != 'utf-8':
+            response.encoding = 'utf-8'
+        
+        # Parse HTML content - use response.text instead of response.content for proper encoding
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # DEBUG: Print encoding info
+        import sys
+        print(f"DEBUG fetch_article_content: response.encoding = {response.encoding}", file=sys.stderr)
+        print(f"DEBUG fetch_article_content: response.text[:100] = {response.text[:100]}", file=sys.stderr)
         
         # Extract title
         title = extract_article_title(soup)
@@ -342,8 +351,8 @@ def attempt_alternative_scraping(url: str) -> str:
         response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
-            # Try to extract content from the raw HTML
-            soup = BeautifulSoup(response.content, 'html.parser')
+            # Try to extract content from the raw HTML - use response.text for proper encoding
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # Look for JSON-LD structured data (common in news sites)
             json_scripts = soup.find_all('script', type='application/ld+json')
@@ -440,6 +449,39 @@ def extract_article_text(soup: BeautifulSoup, max_length: int = 2000) -> str:
         4. Filter out navigation and footer content
         5. Return formatted text
     """
+    # First, try to extract from JSON-LD (many publishers embed full articleBody)
+    try:
+        jsonld_blocks = soup.find_all('script', type='application/ld+json')
+        for block in jsonld_blocks:
+            try:
+                data = json.loads(block.string or block.get_text() or "")
+            except Exception:
+                continue
+
+            candidates = []
+            if isinstance(data, list):
+                candidates = data
+            elif isinstance(data, dict):
+                candidates = [data]
+
+            for cand in candidates:
+                if not isinstance(cand, dict):
+                    continue
+                types = cand.get('@type')
+                # Normalize @type to list
+                if isinstance(types, str):
+                    types = [types]
+                if types and any(t in ['Article', 'NewsArticle', 'Report'] for t in types):
+                    body = cand.get('articleBody') or cand.get('description') or ""
+                    body = (body or '').strip()
+                    if body and len(body) > 200:
+                        cleaned = clean_and_format_text(body)
+                        cleaned = remove_duplicate_sentences(cleaned)
+                        return truncate_text(cleaned, max_length, preserve_words=True)
+    except Exception:
+        # Fall through to DOM-based extraction
+        pass
+
     # Remove unwanted elements
     for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'form']):
         element.decompose()
@@ -458,6 +500,7 @@ def extract_article_text(soup: BeautifulSoup, max_length: int = 2000) -> str:
         '.post-content',
         '.entry-content',
         '.article-body',
+        '.articlebody',  # The Hacker News uses this (no dash)
         '.story-body',
         '.article-text',
         '.post-body',
@@ -489,13 +532,12 @@ def extract_article_text(soup: BeautifulSoup, max_length: int = 2000) -> str:
     if not main_content:
         main_content = soup.find('body') or soup
     
-    # Extract text from paragraphs and headings
-    text_elements = main_content.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div'], 
-                                         string=True)
+    # Extract text from paragraphs and headings (removed string=True to get all elements)
+    text_elements = main_content.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
     
     content_parts = []
     for element in text_elements:
-        text = element.get_text().strip()
+        text = element.get_text(separator=' ', strip=True)
         
         # Skip short or empty text
         if len(text) < 20:
@@ -694,8 +736,8 @@ def perform_duckduckgo_search(query: str, max_results: int) -> List[Dict[str, An
         response = requests.get(search_url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        # Parse results
-        soup = BeautifulSoup(response.content, 'html.parser')
+        # Parse results - use response.text for proper encoding
+        soup = BeautifulSoup(response.text, 'html.parser')
         results = parse_duckduckgo_results(soup, max_results)
         
         return results

@@ -24,8 +24,8 @@ def clean_text_content(text):
         return ""
 
     try:
-        # Remove control characters and normalize unicode
-        text = unicodedata.normalize('NFKD', text)
+        # Normalize unicode to composed form (NFC) to preserve characters
+        text = unicodedata.normalize('NFC', text)
 
         # Remove HTML entities and tags
         text = html.unescape(text)
@@ -41,15 +41,14 @@ def clean_text_content(text):
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
 
-        # Remove garbled character sequences
-        text = re.sub(r'[^\w\s.,;:!?()\-$%"\']+', ' ', text)
+        # Remove only truly problematic characters (control chars, but keep regular text)
+        # Removed the overly aggressive regex that was stripping valid unicode
 
         return text
 
     except Exception as e:
         # Return original text if cleaning fails
         return str(text).strip()
-
 
 def clean_and_format_text(text):
     """
